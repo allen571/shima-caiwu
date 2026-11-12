@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'">
+<title>诗玛财务 AI 工作台</title>
+<link rel="stylesheet" href="finance.css">
+<link rel="stylesheet" href="promotion-fee.css">
+<link rel="stylesheet" href="fund-summary.css">
+<link rel="stylesheet" href="schedule.css">
+</head>
+<body>
+<header class="finance-header"><div><span class="finance-brand">SHIMA FINANCE</span><h1>财务 AI 工作台</h1><p>推广费查询 · 资金月汇总 · 每日计划</p></div><div class="finance-head-right"><button type="button" class="finance-source" id="finance-source" title="导出内置源码包">导出源码包</button><span class="finance-version" id="finance-version"></span></div></header>
+<nav class="finance-tabs" id="finance-tabs" aria-label="功能页签"><button type="button" data-tab="promotion" class="is-active" aria-pressed="true">推广费查询</button><button type="button" data-tab="fund" aria-pressed="false">资金月汇总</button></nav>
+<main id="app"><div id="schedule-slot-promo" class="sc-slot"></div><div id="promo-root"></div></main>
+<main id="fund-app" hidden><div id="schedule-slot-fund" class="sc-slot"></div><div id="fund-root"></div></main>
+<script src="promotion-fee.js"></script>
+<script src="fund-summary.js"></script>
+<script src="schedule.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>

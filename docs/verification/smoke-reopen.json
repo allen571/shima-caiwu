@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "electron": "43.8.3",
+  "phase": "reopen",
+  "hidden": true,
+  "realIPC": true,
+  "realSafeStorage": true,
+  "platformQuery": "synthetic adapter, no network",
+  "fileDialogs": "deterministic destinations",
+  "checks": [
+    "独立main/preload真实IPC加载、品牌和隔离目录",
+    "重启保存账号、密码解密、会话隔离及查询结果恢复"
+  ],
+  "success": true
+}

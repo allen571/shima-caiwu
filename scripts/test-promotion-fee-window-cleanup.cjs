@@ -1,0 +1,12 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');const {PromotionFee}=require('../electron/promotion-fee.cjs');
+function fixture(t,adapter){const root=fs.mkdtempSync(path.join(os.tmpdir(),'pf-cleanup-regression-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return new PromotionFee({root,adapter});}
+test('只释放同批次已完成隐藏窗口，保留失败暂停部分成功及可见窗口',t=>{const p=fixture(t);for(const status of ['failed','paused','partial','completed']){let destroyed=0,visible=false;p.data.results=[{runId:'r',shopId:'s',status}];p.windows.set('s',{isDestroyed:()=>false,isVisible:()=>visible,destroy:()=>destroyed++});p.releaseCompletedWindow('s','other');assert.equal(destroyed,0);if(status==='completed'){visible=true;p.releaseCompletedWindow('s','r');assert.equal(destroyed,0);visible=false;}p.releaseCompletedWindow('s','r');assert.equal(destroyed,status==='completed'?1:0);}});
+test('清理已销毁窗口引用，不影响查询记录',t=>{const p=fixture(t);p.data.results=[{runId:'r',shopId:'s',status:'completed',amountCents:123}];p.windows.set('s',{isDestroyed:()=>true});p.releaseCompletedWindow('s','r');assert.equal(p.windows.size,0);assert.equal(p.data.results[0].amountCents,123);});
+test('窗口destroy异常不覆盖已完成结果，不阻塞剩余账号',async t=>{let p,calls=0;p=fixture(t,async shop=>{calls++;p.windows.set(shop.id,{isDestroyed:()=>false,isVisible:()=>false,destroy:()=>{throw Error('injected destroy failure');}});return {shopName:shop.name,amountCents:100};});p.save({...p.data,shops:Array.from({length:3},(_,i)=>({id:'s'+i,name:'shop'+i,sessionKey:crypto.randomUUID(),platform:'taobao'}))});p.setConcurrency(1);await p.start({shopIds:p.data.shops.map(s=>s.id),start:'2026-10-01',end:'2026-10-22'});await p.work;assert.equal(calls,3);assert(p.state().results.every(r=>r.status==='completed'&&r.amountCents===100));assert.match(p.windowCleanupError,/injected destroy failure/);assert.equal(p.busy,false);});
+
+test('提前登录保留的隐藏页面在查询成功后不关闭，仍使用同一窗口',t=>{
+ const p=fixture(t);let destroyed=0;const win={promotionKeepAlive:true,isDestroyed:()=>false,isVisible:()=>false,destroy:()=>destroyed++};
+ p.windows.set('s',win);p.data.results=[{runId:'r',shopId:'s',status:'completed',amountCents:123}];p.releaseCompletedWindow('s','r');assert.equal(destroyed,0);assert.equal(p.windows.get('s'),win);
+ p.close();assert.equal(destroyed,1);
+});

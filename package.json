@@ -1,0 +1,22 @@
+{
+  "name": "shima-finance-ai-workbench",
+  "productName": "诗玛财务 AI 工作台",
+  "version": "1.2.82",
+  "private": true,
+  "description": "诗玛财务 AI 工作台 · 多平台推广费查询",
+  "author": "Shima",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test scripts/test-*.cjs",
+    "verify:source": "node scripts/verify-source.cjs",
+    "check": "npm run verify:source && npm test",
+    "test:ui": "node scripts/run-smoke.cjs",
+    "snapshot": "python scripts/pack-source-zip.py source-snapshot.zip",
+    "package:win": "npx --yes electron-builder@26.15.3 --config builder.config.cjs --win portable --x64 --publish never",
+    "package:mac": "npx --yes electron-builder@26.15.3 --config builder.config.cjs --mac dir --publish never"
+  },
+  "devDependencies": {
+    "electron": "43.8.3"
+  }
+}

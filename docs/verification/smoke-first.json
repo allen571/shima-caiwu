@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "electron": "43.8.3",
+  "phase": "first",
+  "hidden": true,
+  "realIPC": true,
+  "realSafeStorage": true,
+  "platformQuery": "synthetic adapter, no network",
+  "fileDialogs": "deterministic destinations",
+  "checks": [
+    "独立main/preload真实IPC加载、品牌和隔离目录",
+    "真实表单保存账号、系统加密与本地持久记录",
+    "真实查询按钮、排队服务和合计123.45（合成适配器）",
+    "真实账号导出/导入按钮，新增及跳过重复，历史保留",
+    "真实查询报表导出CSV并回读金额",
+    "1440/620真实布局无页面横向溢出"
+  ],
+  "success": true
+}

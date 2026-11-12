@@ -1,0 +1,3 @@
+// electronDist 指向本机已解压的 electron，跳过打包时「解压 electron 压缩包再改名」这一步：
+// 本机安全删除钩子会占住 release 目录里的临时目录句柄，导致 rename EPERM。
+module.exports={appId:'com.shima.financeworkbench',productName:'诗玛财务AI工作台',electronVersion:'43.8.3',electronDist:require('node:path').join(__dirname,'node_modules','electron','dist'),directories:{output:'release200'},files:['electron/*.cjs','ui/**/*','vendor/*.js','assets/app-icon.*','package.json'],extraResources:[{from:'source-snapshot.zip',to:'source-snapshot.zip'}],asar:true,win:{icon:'assets/app-icon.ico',target:[{target:'portable',arch:['x64']}],artifactName:'Shima-Finance-Workbench-${version}-${arch}.${ext}',signAndEditExecutable:true},mac:{icon:'assets/app-icon.icns',target:'dir',category:'public.app-category.finance'},publish:null};
