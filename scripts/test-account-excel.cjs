@@ -39,10 +39,10 @@ test('客服早晚班双列表不是财务账号表：只认单值账号列', ()
   // 财务表里即使并排放着客服列，也只导账号列，不会多导一条
   const parsed = parseAccountWorkbook(book([
     ['平台', '店铺账号', '早班客服账号', '晚班客服账号', '密码'],
-    ['淘天', '示例淘天旗舰店:finance-test', '示例淘天商城:客服甲', '示例淘天商城:客服乙', 'test-taobao-pass']
+    ['淘天', '示例淘天旗舰店:financeTest', '示例淘天商城:客服甲', '示例淘天商城:客服乙', 'test-taobao-pass']
   ]));
   assert.deepEqual(parsed.accounts, [
-    { platform: 'taobao', username: '示例淘天旗舰店:finance-test', password: 'test-taobao-pass', name: '示例淘天旗舰店' }
+    { platform: 'taobao', username: '示例淘天旗舰店:financeTest', password: 'test-taobao-pass', name: '示例淘天旗舰店' }
   ]);
   assert.deepEqual(parsed.notes, []);
 });
@@ -112,7 +112,7 @@ test('缺表头或缺必需列时明确报错，不猜测导入', () => {
 test('店铺名优先取独立列，拆不出分隔符时退回账号', () => {
   assert.equal(splitShopName('示例淘天商城:客服甲'), '示例淘天商城');
   assert.equal(splitShopName('示例京东甲店-客服甲'), '示例京东甲店');
-  assert.equal(splitShopName('synthetic-user'), 'synthetic-user');
+  assert.equal(splitShopName('syntheticUser'), 'syntheticUser');
   assert.equal(splitShopName('tb-abc:某人'), 'tb-abc', '带连字符的账号仍按冒号拆分');
   assert.equal(splitShopName('示例淘天商城:客服甲', '示例淘天旗舰店'), '示例淘天旗舰店');
 });
