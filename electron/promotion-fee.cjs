@@ -215,7 +215,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
    for(let elapsed=0;elapsed<delay;elapsed+=100){this.assertWindow(win);await wait(100);}
    this.assertWindow(win);
    const state=await observe({...credentials,stage});this.assertWindow(win);
-   if(state.status!=='prepared')return state;
+   if(state.status!=='prepared')return {...state,stage};
   }
   return {status:'unknown'};
  }
@@ -224,48 +224,49 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   const config={...PLATFORMS.qianniu,loginHosts:[...PLATFORMS.qianniu.loginHosts,'loginmyseller.taobao.com','havanalogin.taobao.com']};
   const visible=new Map();const shown=async f=>{if(!f.parent)return true;if(visible.has(f))return visible.get(f);if(!await shown(f.parent))return false;const slots=await this.execute(win,`Array.from(document.querySelectorAll('iframe,frame'),e=>({name:e.name,url:e.src,visible:e.getClientRects().length>0&&!e.closest('[hidden],[aria-hidden="true"]')&&(e.checkVisibility?e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}):getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none'&&getComputedStyle(e).opacity!=='0')}))`,false,f.parent);const named=f.name?slots.filter(s=>s.name===f.name):[],match=named.length===1?named:slots.filter(s=>s.url===f.url);const result=match.length===1?match[0].visible:!match.length&&slots.length===1?slots[0].visible:false;visible.set(f,result);return result;};
   let best={status:'unknown'};const priority={verification:100,agreement:90,rejected:80,form:70,logged_in:60,manual:50,logged_out:40};
-  for(const frame of wc.mainFrame?.framesInSubtree||[wc]){
-   this.assertWindow(win);const url=frame.url||wc.getURL();let host;try{host=new URL(url).hostname;}catch{continue;}
+  let frames;
+  try{frames=wc.mainFrame?.framesInSubtree||[wc];}catch(error){this.assertWindow(win);if(/Render frame was disposed|frame was detached|Execution context was destroyed/i.test(error.message))return best;throw error;}
+  for(const frame of frames){
+   this.assertWindow(win);let url,host;
+   try{url=frame.url||wc.getURL();host=new URL(url).hostname;}catch(error){this.assertWindow(win);if(/Render frame was disposed|frame was detached|Execution context was destroyed/i.test(error.message))return {status:'unknown'};continue;}
    if(!trusted(url)||credentials&&!config.loginHosts.includes(host))continue;
    try{if(!await shown(frame))continue;this.assertWindow(win);const script='('+loginPage.toString()+')('+JSON.stringify(config)+','+JSON.stringify(credentials||null)+')';const inspect=input=>this.execute(win,'('+loginPage.toString()+')('+JSON.stringify(config)+','+JSON.stringify(input)+')',true,frame);const attempt=credentials?require('./native-login.cjs').operate(this,win,frame,inspect,credentials):this.readPage(win,script,frame);let result=await attempt;
    // v1.2.81（2026-11-10 财务反馈「弹窗后账号密码经常没写入」）：旧条件要求「页面上恰好 1 个
    // 密码框、且账号框与密码框都还空着」才兜底。淘宝把上次账号记住、或新版登录页出现第二个
    // password 输入时，兜底被整体跳过 → 弹窗里框是空的。改为：
    // ① 有可用密码框且密码未填 → force 覆盖写入（不动已填好的密码）；
-   // ② 两框都已填、只差点提交 → force 直接点提交；
-   // ③ 写完回读校验，最多 3 轮，避免 React 重渲染把值清掉。
+   // 写完回读校验，最多 3 轮，避免 React 重渲染把值清掉。
    if(credentials&&result.status==='manual'){
     const probe=await this.execute(win,probeInputs(credentials.username),false,frame).catch(()=>null);
     const stage=credentials.stage;
     // 只在「密码空 + 账号框不是别人账号」时补填，避免覆盖用户手输的其他账号
-    const needFill=!!probe&&probe.hasPassword&&!probe.passwordFilled&&(!probe.usernameFilled||probe.usernameMatches);
-    const needSubmit=!!probe&&probe.hasPassword&&probe.passwordFilled&&probe.usernameFilled&&probe.usernameMatches&&stage==='submit';
-    if(needFill||needSubmit){
+    const needFill=stage!=='submit'&&!!probe&&probe.hasPassword&&!probe.passwordFilled&&(!probe.usernameFilled||probe.usernameMatches);
+    if(needFill){
      const forced={...credentials,force:true,nativeInput:false};
      for(let attempt=0;attempt<3;attempt++){
       const written=await this.execute(win,'('+loginPage.toString()+')('+JSON.stringify(config)+','+JSON.stringify(forced)+')',true,frame).catch(()=>null);
       if(!written)break;
       if(['submitted','switched','agreement','verification','rejected','untrusted','form','logged_out'].includes(written.status)){result=written;break;}
-      const after=needSubmit?probe:await this.execute(win,probeInputs(credentials.username),false,frame).catch(()=>null);
+      const after=await this.execute(win,probeInputs(credentials.username),false,frame).catch(()=>null);
       const done=!!after&&(stage==='username'?after.usernameFilled:after.passwordFilled&&after.usernameFilled);
       if(done){result={status:credentials.fillOnly?'filled':'prepared'};break;}
       await wait(200);
      }
     }
    }
-   if(credentials&&['submitted','prepared','filled','switched','verification','agreement','rejected','manual','untrusted'].includes(result.status))return result;if((priority[result.status]||0)>(priority[best.status]||0))best=result;}catch{this.assertWindow(win);if(credentials)return {status:'unknown'};}
+   if(credentials&&['submitted','prepared','filled','switched','verification','agreement','rejected','manual','untrusted'].includes(result.status))return result;if((priority[result.status]||0)>(priority[best.status]||0))best=result;}catch(error){this.assertWindow(win);if(credentials||/Render frame was disposed|frame was detached|Execution context was destroyed/i.test(error.message))return {status:'unknown'};}
   }return best;
  }
  showProblem(win){if(this.hidden||this.backgroundOnly||this.stopped||this.writeFailure||!win||win.isDestroyed())return false;try{return require('./promotion-fee-front.cjs').bringToFront(win);}catch(error){this.windowAttentionError=error.message;return false;}}
- async attention(shop,win,message,ledger=false){
+ async attention(shop,win,message,ledger=false,allowSubmit=false){
   // v1.2.81（2026-11-10 财务反馈「跑一下停一下，要点暂停再点抓取」）：旧实现任何一家店遇到
   // 滑块/协议都会在这里原地等 15 分钟，并发 4 时 4 家一卡，后面 150 多家全排队。
   // 批量抓取（run/start）一律立刻抛出「需人工」，跳过该店继续跑；只有用户主动点「登录」才等待。
   if(!this.interactive){
    // v1.2.84：跳过前先把现场采下来（滑块长什么样、页面是否白板），再收回窗口。
    try{await this.captureLoginFailure(shop,win,(ledger?'台账页需人工验证':'登录需人工验证')+(message?'：'+message:''),'需人工验证自动跳过');}catch(error){}
-   // 批量跳过时把刚为填表亮起的窗口收回去，避免 160 家店在桌面上堆窗口
-   try{if(!win.isDestroyed()&&win.isVisible())win.hide();}catch(error){}
+   // 保留需要人工处理的官方窗口，让用户能看到并完成验证。
+   if(!this.hidden&&!this.backgroundOnly&&!this.stopped)this.showProblem(win);
    throw manualError('该店需要人工验证'+(message?'：'+message:''),ledger?'verification':'manual');
   }
   if(this.backgroundOnly)throw Error('该店需要人工登录或验证，请切换到该店完成认证后补查');
@@ -292,6 +293,13 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
     const result=await this.authState(win);
     if(result.status==='logged_in'&&result.shopName){win.promotionKeepAlive=true;if(!win.isDestroyed())win.hide();await this.flushSession(win);this.log('attention-ok',shop.name);return result;}
     if(result.status==='rejected')throw Error('千牛账号或密码错误，请编辑该店铺账号');
+    if(allowSubmit&&result.status==='form'){
+     allowSubmit=false;
+     const password=this.safeStorage.decryptString(Buffer.from(shop.secret,'base64'));
+     await this.authState(win,{username:shop.username,password,stage:'submit'});
+     await wait(350);
+     continue;
+    }
     if(!prefilled&&prefillTries<3&&!['logged_in','rejected','switched','submitted'].includes(result.status)){
      // v1.2.81：原来只在 form/logged_out 时预填，且只试一次。manual/unknown（页面半加载、找不到
      // 提交按钮）其实同样可填——放宽并重试一次，减少「窗口弹出来了但框还是空的」。
@@ -340,7 +348,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
     if(!['submitted','prepared','filled'].includes(filled.status))await this.captureLoginFailure(shop,win,'填入结果 '+filled.status,'登录自动填入未完成').catch(()=>{});
     // 仅明确尚未提交的切换/表单结果可撤销本次预备检查点。
     if(['switched','logged_out','form'].includes(filled.status))this.finishLoginAttempt(shop);
-    if(['verification','agreement','manual'].includes(filled.status)){const done=await this.attention(shop,win,'请在千牛窗口完成登录');return done.shopName;}
+    if(['verification','agreement','manual'].includes(filled.status)){const done=await this.attention(shop,win,'请在千牛窗口完成登录',false,filled.status==='verification'&&filled.stage==='submit');return done.shopName;}
     if(filled.status==='rejected')throw Error('千牛账号或密码错误，请编辑该店铺账号后补查');
    }
    await wait(300);
@@ -528,7 +536,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
      // 无 accounts（淘宝/千牛路径）保持原规则：金额必须是合法非负整数
      const hasAccounts=Array.isArray(result.accounts)&&result.accounts.length>0,completed=hasAccounts?result.accounts.filter(a=>a.status==='completed'):[];
      const moneyOk=hasAccounts?completed.every(a=>Number.isSafeInteger(a.amountCents)&&a.amountCents>=0)&&(completed.length?Number.isSafeInteger(result.amountCents)&&result.amountCents===completed.reduce((n,a)=>n+a.amountCents,0):result.amountCents===null):(Number.isSafeInteger(result.amountCents)&&result.amountCents>=0);
-     if(result.shopName!==this.shop(shop.id).name||(result.status==='failed'&&result.amountCents!==null)||(result.status!=='failed'&&!moneyOk))throw Error('店铺或金额核对失败');patch({...result,status:result.status||'completed'});this.log('shop-done',shop.name+' '+(Date.now()-startedAt)+'ms '+(result.amountCents??''));}catch(error){if(this.writeFailure)return;const manual=error.code==='NEEDS_MANUAL';const pbWin=this.windows.get(shop.id);try{if(pbWin&&!pbWin.isDestroyed())pbWin.hide();}catch{}this.log(manual?'shop-manual':'shop-failed',shop.name+' '+(Date.now()-startedAt)+'ms | '+(error.reason||'')+' | '+error.message);patch({status:this.stopped?'paused':manual?'manual':'failed',error:/Object has been destroyed|Render frame was disposed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message,amountCents:null,...(manual?{manualReason:error.reason||'manual'}:{})});}}finally{this.activeQueries.delete(shop.id);this.releaseCompletedWindow(shop.id,runId);}});}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,shops.length)},()=>worker()));const tally={};for(const r of this.data.results)if(r.runId===runId)tally[r.status]=(tally[r.status]||0)+1;this.log('run-end',JSON.stringify(tally));const failed=settled.find(r=>r.status==='rejected');if(failed)throw failed.reason;
+     if(result.shopName!==this.shop(shop.id).name||(result.status==='failed'&&result.amountCents!==null)||(result.status!=='failed'&&!moneyOk))throw Error('店铺或金额核对失败');patch({...result,status:result.status||'completed'});this.log('shop-done',shop.name+' '+(Date.now()-startedAt)+'ms '+(result.amountCents??''));}catch(error){if(this.writeFailure)return;const manual=error.code==='NEEDS_MANUAL';const pbWin=this.windows.get(shop.id);try{if(pbWin&&!pbWin.isDestroyed()&&(this.stopped||this.hidden||this.backgroundOnly))pbWin.hide();else if(pbWin&&!pbWin.isDestroyed()&&!manual)this.showProblem(pbWin);}catch{}this.log(manual?'shop-manual':'shop-failed',shop.name+' '+(Date.now()-startedAt)+'ms | '+(error.reason||'')+' | '+error.message);patch({status:this.stopped?'paused':manual?'manual':'failed',error:/Render frame was disposed|frame was detached|Execution context was destroyed/i.test(error.message)?'页面跳转时读取中断，请补查该店铺':/Object has been destroyed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message,amountCents:null,...(manual?{manualReason:error.reason||'manual'}:{})});}}finally{this.activeQueries.delete(shop.id);this.releaseCompletedWindow(shop.id,runId);}});}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,shops.length)},()=>worker()));const tally={};for(const r of this.data.results)if(r.runId===runId)tally[r.status]=(tally[r.status]||0)+1;this.log('run-end',JSON.stringify(tally));const failed=settled.find(r=>r.status==='rejected');if(failed)throw failed.reason;
  if(!this.writeFailure)this.save({...this.data,results:this.data.results.map(r=>r.runId===runId&&['queued','running'].includes(r.status)?{...r,status:'paused',error:'尚未查询'}:r)});}
  async retry(){if(this.busy||this.loginBusy||this.accountTransferBusy)throw Error('查询或登录正在运行');if(this.writeFailure)throw Error('本机保存失败，已停止后续查询');const suspect=r=>Array.isArray(r.accounts)&&r.accounts.some(a=>a.status==='none'||a.status==='finance-only');const rows=this.state().results.filter(r=>!r.accountChanged&&this.data.shops.some(s=>s.id===r.shopId)&&(r.status!=='completed'||suspect(r)));if(!rows.length)throw Error('没有可补查的已配置账号');const dates=range(rows[0]),runId=rows[0].runId,shops=rows.map(r=>this.shop(r.shopId));this.interactive=false;this.log('retry-start',shops.length+' 家');this.save({...this.data,results:this.data.results.map(r=>{if(r.runId!==runId||!shops.some(s=>s.id===r.shopId))return r;if(r.status!=='completed')return {...r,status:'queued',error:'',amountCents:null};return suspect(r)?{...r,status:'queued',error:'',amountCents:null,accounts:r.accounts.filter(a=>a.status==='completed')}:r;})});this.busy=true;this.stopped=false;this.lastError='';this.work=this.run(shops,dates,runId).catch(error=>{this.lastError=error.message;}).finally(()=>{this.busy=false;this.current=null;this.phase='';});return this.state();}
  pause(){this.stopped=true;return this.state();}

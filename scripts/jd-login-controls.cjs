@@ -4,7 +4,7 @@ const {app,BrowserWindow,session}=require('electron');
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {jdPage,JdPromotionFee}=require('../electron/promotion-fee-jd.cjs');
 const {loginPage,PLATFORMS}=require('../electron/platform-login.cjs');
-const root=fs.mkdtempSync(path.join(os.tmpdir(),'shima-jd-controls-'));
+const root=process.env.SHIMA_JD_CONTROLS_ROOT||fs.mkdtempSync(path.join(os.tmpdir(),'shima-jd-controls-'));
 app.setPath('userData',root);
 if(process.platform==='darwin')app.setActivationPolicy('prohibited');
 app.on('window-all-closed',()=>{});
@@ -81,7 +81,7 @@ app.whenReady().then(async()=>{
    const config={...PLATFORMS.qianniu,loginHosts:[...PLATFORMS.qianniu.loginHosts,'loginmyseller.taobao.com']};
    const adapter=new JdPromotionFee({host:coordinator});
    const observe=input=>host==='passport.shop.jd.com'?adapter.observe(win,{credentials:input}):coordinator.authState(win,input);
-   assert.equal((await coordinator.submitLogin(win,observe,credentials)).status,'submitted');
+   assert.equal((await coordinator.submitLogin(win,observe,credentials)).status,'submitted',JSON.stringify({host,width}));
    const timing=await win.webContents.executeJavaScript(`({timeline,clickedAt:window.clickedAt,clicks:window.clicks})`);
    assert.deepEqual([...new Set(timing.timeline.map(e=>e.type))],['text','password']);const passwordStart=timing.timeline.findIndex(e=>e.type==='password');assert(timing.timeline[passwordStart].at-timing.timeline[passwordStart-1].at>=450);assert(timing.clickedAt-timing.timeline.at(-1).at>=900);assert.equal(timing.clicks,1);
    platformCases++;
@@ -100,7 +100,6 @@ app.whenReady().then(async()=>{
    platformCases++;
   }
   html=fixture();await win.loadURL('https://evil.test/login');assert.equal((await read()).status,'untrusted');
-  console.log(JSON.stringify({success:true,cases:report.length+6+platformCases,isolated:true}));
+  return {success:true,cases:report.length+6+platformCases,isolated:true};
  }finally{win.destroy();await ses.clearStorageData();}
-}).then(()=>app.quit()).catch(e=>{console.error(e);app.exit(1);});
-app.on('will-quit',()=>fs.rmSync(root,{recursive:true,force:true}));
+}).then(report=>{console.log(JSON.stringify(report));app.exit(0);}).catch(e=>{console.error(e);app.exit(1);});

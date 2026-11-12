@@ -38,3 +38,18 @@ test('后台人工等待在解密或预填前退出，不抢焦点',async t=>{
  const p=setup(t),shop=p.data.shops[0];p.backgroundOnly=true;p.safeStorage.decryptString=()=>{throw Error('不应解密');};
  await assert.rejects(p.attention(shop,{},'synthetic'),/需要人工登录/);
 });
+test('本轮提交前遇验证，验证后仅尝试一次提交',async t=>{
+ const p=setup(t),shop=p.data.shops[0];p.safeStorage.decryptString=b=>b.toString();p.hidden=true;
+ const calls=[];let observed=0;
+ p.authState=async(w,input)=>{if(input){calls.push(input);return {status:input.stage==='submit'?'submitted':'filled'};}return ++observed===1?{status:'verification'}:observed<4?{status:'form'}:{status:'logged_in',shopName:'synthetic'};};
+ const win={isDestroyed:()=>false,hide(){},webContents:{isDestroyed:()=>false}};
+ await p.attention(shop,win,'synthetic',false,true);
+ assert.equal(calls.filter(c=>c.stage==='submit').length,1);
+});
+test('批量遇验证保留并展示窗口，继续返回人工状态',async t=>{
+ const p=setup(t),shop=p.data.shops[0];p.interactive=false;
+ let shown=0,hidden=0;p.captureLoginFailure=async()=>{};p.showProblem=()=>{shown++;};
+ const win={isDestroyed:()=>false,hide(){hidden++;}};
+ await assert.rejects(p.attention(shop,win,'synthetic'),e=>e.code==='NEEDS_MANUAL');
+ assert.equal(shown,1);assert.equal(hidden,0);
+});

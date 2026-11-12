@@ -1,0 +1,21 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto'),{spawnSync}=require('node:child_process');
+test('来源校验允许 Windows 换行，同时拒绝内容和二进制变化',t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'shima-verify-source-'));
+ t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ fs.mkdirSync(path.join(root,'scripts'));
+ fs.copyFileSync(path.join(__dirname,'verify-source.cjs'),path.join(root,'scripts','verify-source.cjs'));
+ const text=Buffer.from('first\nsecond\n'),binary=Buffer.from([0,13,10,255]);
+ const hash=data=>crypto.createHash('sha256').update(data).digest('hex');
+ fs.writeFileSync(path.join(root,'source-files.json'),JSON.stringify({files:{'sample.css':hash(text),'sample.png':hash(binary)}}));
+ fs.writeFileSync(path.join(root,'package.json'),'{}');
+ fs.writeFileSync(path.join(root,'sample.css'),'first\r\nsecond\r\n');
+ fs.writeFileSync(path.join(root,'sample.png'),binary);
+ const run=()=>spawnSync(process.execPath,[path.join(root,'scripts','verify-source.cjs')],{encoding:'utf8'});
+ assert.equal(run().status,0);
+ fs.writeFileSync(path.join(root,'sample.css'),'first\r\nchanged\r\n');
+ assert.notEqual(run().status,0);
+ fs.writeFileSync(path.join(root,'sample.css'),text);
+ fs.writeFileSync(path.join(root,'sample.png'),Buffer.from([0,10,255]));
+ assert.notEqual(run().status,0);
+});

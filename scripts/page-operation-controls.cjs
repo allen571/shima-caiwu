@@ -45,7 +45,7 @@ app.whenReady().then(async()=>{const checks=[];try{
     assert.equal(result.outside,scenario.permanent?1:0);
    }else{
     await jd.setDates(win,dates);
-    const result=await win.webContents.executeJavaScript('result()');assert.equal(result.value,dates.start+' ~ '+dates.end);assert.equal(result.open,false);assert.equal(result.foreignClicks,0);assert.equal(result.clicks,drop?3:2);if(drop)assert.equal(result.arrows,2);if(half)assert.ok(result.resets>=1);if(scenario.noEsc)assert.equal(result.outside,1);if(scenario.escDelay)assert.equal(result.outside,0);
+    const result=await win.webContents.executeJavaScript('result()');assert.equal(result.value,dates.start+' ~ '+dates.end);assert.equal(result.open,false);assert.equal(result.foreignClicks,0);assert.equal(result.clicks,drop?3:2,JSON.stringify({width,scenario,result}));if(drop)assert.equal(result.arrows,2);if(half)assert.ok(result.resets>=1);if(scenario.noEsc)assert.equal(result.outside,1);if(scenario.escDelay)assert.equal(result.outside,0);
    }
    checks.push({width,...scenario,delayedSelectionMs:delay,delayedMonthMs:monthDelay});
   }finally{win.destroy();}

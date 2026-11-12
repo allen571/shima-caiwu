@@ -96,8 +96,8 @@ exports.run=async({app,main,service,dialog})=>{
      assert.equal(queryingWin.webContents.session,seenPartition);assert.equal(service.shop(queryingShop.id).loginNeedsAttention,true);
      assert.equal(service.state().manual.count,1);
      await service.work;
-     assert.equal(service.state().results[0].amountCents,null);assert.equal(service.state().results[0].status,'manual');
-     report.checks.push('实际查询按钮→页面要求验证→立即标记需人工且不阻塞批次、不弹窗');
+     const manualResult=service.state().results.find(r=>r.shopId===queryingShop.id&&r.status==='manual');assert.ok(manualResult);assert.equal(manualResult.amountCents,null);
+     report.checks.push('实际查询按钮→页面要求验证→立即标记需人工且不阻塞批次');
      // 该店窗口必须保留：人工处理完补查时直接复用，避免重新登录又撞一次滑块
      assert.equal(queryingWin.isDestroyed(),false);assert.ok(ledgerRequests>=1);
      await until(()=>js(`document.querySelector('#pf-results').textContent.includes('需人工验证')`));

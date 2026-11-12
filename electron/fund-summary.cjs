@@ -985,7 +985,7 @@ class FundSummary{
     deadline+=Date.now()-kickT0;
     continue;
    }
-   if(st.micro&&st.micro.loaded)shellBooted=true;
+   if(st.micro&&st.micro.loaded||!st.loading&&/QnworkbenchHome/i.test(st.url||'')&&/首页/.test(st.body||'')&&/财务/.test(st.body||''))shellBooted=true;
    // v1.2.52（用户 11-08 反馈：多数店仍要手动点进去）：15 秒停滞看门狗——页面任何进展信号
    // （URL / 微应用挂载 / 资金页 / 页签控件 / 数据行）连续 15 秒毫无变化，就「重新进入」：
    // 回工作台首页重启外壳，下一轮按手动路径点「财务 → 收支记录」再跳目标页（等价于用户
@@ -1475,9 +1475,8 @@ class FundSummary{
   const win=this.host.window(shop);
   this.armWindowOpen(win);
   await this.authenticateGuarded(shop,win);
-  // 资金页抓取时窗口置为可见：诊断包证实可见窗口下直达链接 1.5 秒内就绪，
-  // 而后台隐藏窗口的渲染时序是此前多版导航失败的头号嫌疑；抓完由 host 统一释放窗口
-  try{if(!win.isDestroyed()&&!win.isVisible())win.show();}catch(e){}
+  // 登录完成后在后台抓取，需要人工处理时由认证或异常处理流程显示窗口。
+  try{if(!win.isDestroyed()&&win.isVisible())win.hide();}catch(e){}
   this.armNavTrace(win);
   // 抓取期间也挂下载守卫：官方页偶发自发下载（账单文件），拦掉避免弹「另存为」卡住无人值守抓取
   this.armDownload(win);
@@ -1581,6 +1580,7 @@ class FundSummary{
   const worker=async()=>{while(next<shops.length){if(this.stopped)return;const shop=shops[next++];
    await this.host.queryContext.run(shop.id,async()=>{
     this.activeQueries.set(shop.id,true);
+    let failed=false;
     try{
      for(const month of months){
       if(this.stopped)return;
@@ -1591,6 +1591,7 @@ class FundSummary{
        patch({status:'completed',incomeCents:row.incomeCents,incomeCount:row.incomeCount,expenseCents:row.expenseCents,expenseCount:row.expenseCount,balanceCents:row.balanceCents,detailCount:row.detailCount??null,source:row.source||'',days:row.days||0,note:row.note||'',error:row.empty?'该月无数据':''});
       }catch(error){
        if(this.stopped){try{patch({status:'paused',error:'已暂停'});}catch{}return;}
+       failed=true;
        let msg=/Object has been destroyed|Render frame was disposed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message;
        // 抓取失败自动落诊断包（v1.2.15）：用户零额外操作，把桌面生成的文件夹发回即可定位导航问题；
        // 窗口已销毁的失败没有现场可采，跳过
@@ -1601,13 +1602,14 @@ class FundSummary{
         }catch(e){}
        }
        patch({status:'failed',error:msg});
+       this.save({...this.data,results:this.data.results.map(r=>r.runId===runId&&r.shopId===shop.id&&r.status==='queued'?{...r,status:'paused',error:'本店前一项失败，请处理后补查',updatedAt:new Date().toISOString()}:r)});
+       break;
       }
      }
     }finally{
      this.activeQueries.delete(shop.id);
-     // 抓取期间窗口是可见的（保证官方页正常渲染）；本店铺抓完立刻收回，避免窗口堆满屏幕，
-     // 收回后由 host 按原规则释放窗口
-     try{const finished=this.host.window(shop);if(finished&&!finished.isDestroyed()&&finished.isVisible())finished.hide();}catch(e){}
+     // 异常窗口保留供处理，正常结束或暂停时收回。
+     try{const finished=this.host.windows?.get(shop.id);if(finished&&!finished.isDestroyed()){if(failed&&!this.stopped)this.host.showProblem(finished);else if(finished.isVisible())finished.hide();}}catch(e){}
     }
    });
   }};
@@ -2172,6 +2174,7 @@ class FundSummary{
     const dir=await this.captureFailure(shop,error,'导出失败自动采集');
     if(dir)this.lastError=error.message+'；已自动生成诊断包：'+dir+'（请把该文件夹发给 AI 定位）';
    }catch(e){}
+   if(!this.stopped){const win=this.host.windows?.get(shop.id);if(win&&!win.isDestroyed())this.host.showProblem(win);}
    throw error;
   }
   finally{
@@ -2208,6 +2211,7 @@ class FundSummary{
     const dir=await this.captureFailure(shop,error,'单日明细下载失败自动采集');
     if(dir)this.lastError=error.message+'；已自动生成诊断包：'+dir;
    }catch(e){}
+   if(!this.stopped){const win=this.host.windows?.get(shop.id);if(win&&!win.isDestroyed())this.host.showProblem(win);}
    throw error;
   }
   finally{
@@ -2215,12 +2219,12 @@ class FundSummary{
   }
  }
  async downloadDayRun(shop,date){
-  let win=null;
+  let win=null,failed=false;
   try{
    win=this.host.window(shop);
    this.armWindowOpen(win);
    await this.authenticateGuarded(shop,win);
-   try{if(!win.isDestroyed()&&!win.isVisible())win.show();}catch(e){}
+   try{if(!win.isDestroyed()&&win.isVisible())win.hide();}catch(e){}
    this.armNavTrace(win);
    this.log('run-window',shop.name+' 窗口就绪，进入「日汇总」页（单日 '+date+'）');
    await this.openRecordTab(win,'日汇总',shop);
@@ -2236,22 +2240,21 @@ class FundSummary{
    });
    return res;
   }catch(error){
-   this.lastError=this.lastError||error.message;
+   failed=true;
    throw error;
   }finally{
-   // 与 download() 同口径：结束销毁官方窗口，不留常驻会话拖慢后续店铺
-   try{if(win&&!win.isDestroyed())win.destroy();}catch(e){}
+   try{if(win&&!win.isDestroyed()){if(this.stopped){if(win.isVisible())win.hide();}else if(!failed)this.host.dropWindow(shop.id);}}catch(e){}
   }
  }
  async downloadRun(shop,label,month){
   const window=()=>this.exportTimeoutMs||this.downloadTimeoutMs||EXPORT_TIMEOUT_MS;
-  let win=null;
+  let win=null,failed=false;
   try{
    win=this.host.window(shop);
    this.armWindowOpen(win);
    await this.authenticateGuarded(shop,win);
-   // 导出时窗口置为可见（与抓取同理：弹窗渲染与点击需要真实可见页面）
-   try{if(!win.isDestroyed()&&!win.isVisible())win.show();}catch(e){}
+   // 正常导出在后台运行，认证和异常时保留官方窗口。
+   try{if(!win.isDestroyed()&&win.isVisible())win.hide();}catch(e){}
    this.armNavTrace(win);
    this.log('run-window',shop.name+' 窗口就绪，开始进入「'+label+'」页');
    await this.openRecordTab(win,label,shop);
@@ -2328,7 +2331,7 @@ class FundSummary{
    return {files:done.files||[]};
   }catch(error){
    // 记下本轮失败，finally 才不会把「给用户手动补导出」的窗口销毁掉
-   this.lastError=this.lastError||error.message;
+   failed=true;
    throw error;
   }finally{
    // 导出成功后直接销毁官方窗口（v1.2.55）：批量下载是逐家串行的，旧实现只 hide 不销毁，
@@ -2336,7 +2339,7 @@ class FundSummary{
    // 既拖慢后面几家（表现为「停在首页不动」），也让主进程内存压力持续升高。
    // 登录态在 persist 分区里，下一家重开新窗口仍免登录；失败了才保留窗口给用户手动补导出
    try{
-    if(win&&!win.isDestroyed()&&!this.lastError)this.host.dropWindow(shop.id);
+    if(win&&!win.isDestroyed()){if(this.stopped){if(win.isVisible())win.hide();}else if(!failed)this.host.dropWindow(shop.id);}
    }catch(e){}
   }
  }

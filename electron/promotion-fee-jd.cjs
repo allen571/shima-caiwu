@@ -531,7 +531,16 @@ class JdPromotionFee{
    }
    if(!accepted)continue;
    const state=await this.dateState(win);if(state.open&&state.confirm)await this.stableClick(win,async()=>{const current=await this.dateState(win);return !current.open?{done:true}:current.confirm;},{stage:'京东日期确认按钮'});
-   const committed=await this.waitDate(win,s=>{const pair=s.value.match(/\d{4}-\d{2}-\d{2}/g)||[];return !s.open&&pair[0]===dates.start&&pair[1]===dates.end;});
+   const matches=s=>{const pair=s.value.match(/\d{4}-\d{2}-\d{2}/g)||[];return !s.open&&pair[0]===dates.start&&pair[1]===dates.end;};
+   let committed=await this.waitDate(win,matches);
+   if(!committed&&state.open&&state.confirm){
+    const current=await this.dateState(win);
+    if(current.open&&(current.headers!==state.headers||current.selection!==state.selection||current.value!==state.value))throw Error('京东日期状态已变化，请重新选择');
+    if(current.open&&current.confirm){
+     await this.stableClick(win,async()=>{const next=await this.dateState(win);if(!next.open)return {done:true};if(next.headers!==current.headers||next.selection!==current.selection||next.value!==current.value)throw Error('京东日期状态已变化，请重新选择');return next.confirm;},{stage:'京东日期确认按钮'});
+     committed=await this.waitDate(win,matches);
+    }
+   }
    if(committed)return;
    reason='京东日期选择未生效（控件未提交目标范围）';
   }
