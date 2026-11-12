@@ -1,52 +1,54 @@
 {
   "createdAt": "2026-10-23T02:12:59.309Z",
   "source": "shima-operations-ai-workbench, promotion-fee extraction; independent finance shell",
-  "version": "1.2.82",
+  "version": "1.2.98",
   "files": {
-    "electron/main.cjs": "9c6129cd9bab64dbab5911b8aabf4ba1de3a4cebf16f17509879cb0badc102ea",
-    "electron/platform-login.cjs": "a9fc290d732e56e8c7459df942acf1630bbe8c9ab2200c95fb571cd6a9a86eb0",
+    "electron/main.cjs": "9000abe9eb856da0d4c7e8196256f0768beb84e846412cc9fa453a5241a6b31f",
+    "electron/platform-login.cjs": "517dbe59859ef657bd9b81bc000a4a05eb932eacfe5e4b415f29adff43f98aab",
     "electron/preload.cjs": "57d9ec25fc6b30f2cf2a5f12eb5f80433ea96ca77b50aaf7b75e15acc77a187d",
     "electron/promotion-fee-accounts.cjs": "cdf5bc955afdc226fa67284e6759617879cf294e03107ebfdd0918911fdef2d5",
     "electron/promotion-fee-excel.cjs": "244077700df7f7ad8387718a0b98e378d105e754752e4365e314452f75756817",
     "electron/promotion-fee-export.cjs": "1a8a79427605b33b4b5b21e7615ff2d53c45a8d5a8a0d2c4ea8c89eb9392b9c5",
     "electron/promotion-fee-front.cjs": "04965325f13b74ac622103df095fc0c4323dcf9bea12aa454874b1a2fb3b1ba5",
-    "electron/promotion-fee-jd.cjs": "e9dc9acb5b67cc158ce8d22afa06e3554b4ee88c339b4946b80f422e384780da",
-    "electron/promotion-fee.cjs": "4f86cb207499cd2be812f0bbf5a7e11eec3ed8783453096aa9d4844bd5e46b1b",
-    "ui/boot.js": "33aea999ae9873f9585f0c287cee0fcc5faf4783aa5ef29de90b8adca28dcfb1",
-    "ui/finance.css": "a2bb298ae3a20de780763d8a508b483c095b633ea210ecb3680182e81a3ec56a",
-    "ui/index.html": "b790d79a7ddd81f6e11dcf22750c43bc3a5b55efae00ee4956f71807be256768",
-    "ui/promotion-fee.css": "3a257a98abff21dc277c45f8368fb77e1bcf6199801db4da0063d9222ef1796c",
-    "ui/promotion-fee.js": "665b7cb558fd3d34bfa724c0cae5c7c7660ecf73bb442247fe24ec1c68e897e4",
+    "electron/promotion-fee-jd.cjs": "c044165efbc11bba1ce23cd633915d1d2d9aa1aa3eff0cd5d110c72152776753",
+    "electron/promotion-fee.cjs": "999576917309661a10b1807fa0a315cebabef82ae1deb4df31f642daaa2e6183",
+    "ui/boot.js": "cf30fbfc84110233326e7c27e4d45f6dc42d8c3c86fb25e88a5cc3f949e49af2",
+    "ui/finance.css": "4ebaeb4c4983f740454afee00783adca16df300fa5dc825b9f6fc3f1ed8bffd7",
+    "ui/index.html": "1eb70824b8e5c39db3a1d77de1088cc949d2cf9cea0188beb2fea2769729cfec",
+    "ui/promotion-fee.css": "02f79b0c38d2568aff0d6aac0356813584f715ef56548f32c5165013612ca15c",
+    "ui/promotion-fee.js": "513f12a9317dc5aab7904891b6830b986c6f16ec10658b80630c1858adf77be2",
     "vendor/xlsx.full.min.js": "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41",
     "assets/app-icon.png": "7beb7bd6a43d8bcdc87a0d80022c38b6ac6d09bacefaad81310c104d5bf117c7",
     "assets/app-icon.ico": "431deab57a686dd0c8ef7ae4953e12c4776cd67c99939bd4728ee19d359db9c2",
     "assets/app-icon.icns": "50091161819a87c7e436eec9cd92cf0c1e157efd5016c0e1cb5f72ed6e736b95",
     "electron/page-operations.cjs": "74192cf6ee704682f3f1817c0ef99d910e3bca2b9867d93f68d2928d102a093b",
     "electron/native-login.cjs": "e67e1ad13d08e78756efae297a23537c6e9d711e886ee2293556308e648195d9",
-    "scripts/test-promotion-fee.cjs": "ab2f0724537e0af5d18ded2ca317ab4fe6400922eeaef0641a1c60b1d22ce488",
+    "scripts/test-promotion-fee.cjs": "fbc4c5c7d52daadacaa6c66f8f769581e8cd012a7eb7eaf39909d204e324365e",
     "scripts/test-promotion-fee-jd-negative-confirm.cjs": "cec83c5028cfa9dcc0b06640b2e170c2149b3df544a8c370132acfbdfbd1a686",
     "scripts/test-promotion-fee-jd-auth-diagnostics.cjs": "81bd4ee13c3dd1c432aad28d42d12e3836b30a0ecfd464055b56546c5f44d00e",
-    "electron/fund-summary.cjs": "973f9a5d4888693571210e36382f966539f78df61849ee368dd560c49c28c016",
-    "ui/fund-summary.js": "4380951639445e7856bd982713d9f033c984c9ee64f4d8e59d963f35282c810a",
-    "ui/fund-summary.css": "948b7899d5f637e8fedca18502b02ee8c98e5342227aea1e0f478f2626f36ef6",
+    "electron/fund-summary.cjs": "3b3cb78237164c347c2e950fd333a8c096f62eb4dc9017aa2ca90baf3116801c",
+    "ui/fund-summary.js": "f50df2dfe6352fb1a6e9a3ff2005039be915f129241f06ad95b984d27155b2de",
+    "ui/fund-summary.css": "0d88867116afb856c8dd38a91dc21d6de1945640570187222cb15dd7cb985f34",
     "scripts/test-fund-summary.cjs": "1923688da7a4427d7caaeab0699b77f6119ce2b43787ce6edd6da4d4bbc74984",
-    "scripts/smoke.cjs": "cd4efbb9f1bd113264181726ae0ef15c23181dd557c48590961f841fc8399f44",
+    "scripts/smoke.cjs": "7f8e08a0d3a39508fcf222bb20116069d2630ee90119e84630a33fcaea2190c4",
     "scripts/test-promotion-fee-jd-auth-page-script.cjs": "ae2005c2cb5e7c7a0014db23383f1f2877afb267bc24dcfc31c7674102489502",
     "builder.config.cjs": "47e0b53999fd7dffb4502c092985e781860c485831327270dbe4cd212f087666",
     "scripts/packaged-smoke.cjs": "e1a42f1ec551dbf7a619b29fcc2ecc12cbaf31a3c7c26ba8bf777dd8f02f5fa6",
-    "package.json": "05c1c9544d06b4cbd4b437af7d0cf47188e95f3094ce0666052b8028a5e8158c",
-    "electron/scheduler.cjs": "15fe5be745e9498b2b6bfb6d6f1dc6cb9df7890d7c792130cc29b3a741b91522",
-    "ui/schedule.js": "cbd4e1a6aba5285e9d2e69491ed71c52b4997b2f39a713e7507ee6ca5a07fca5",
-    "ui/schedule.css": "cd4bbd4903c196f37fc8e34f119d2ed87f38ce87e284b8322f80cb3bcdfae58f",
-    "scripts/test-scheduler.cjs": "ae328d889736faf3c4c82185f19796d89f726e47859e4a405ba7d486e5900c04",
+    "package.json": "689483ded45527d64502c94b2088bd1916cc9c8d953c71f1d55d14903f44c5c7",
+    "electron/scheduler.cjs": "c9d40d346139a0ae3c2a506a320c9d937ad2198ac7f286695e1eac2cd82cae1c",
+    "ui/schedule.js": "35743553a4b4fe9f0b64d610613564d83b66a2c94948f9d36ce8c1d7ec53702e",
+    "ui/schedule.css": "cb43fe539952935dd994f0d225fcc9d23df6062a21b94e05b587356bf7402975",
+    "scripts/test-scheduler.cjs": "a8c40d86df6712df99a00e0a10eb6fbe693658d9c46b5980e6c7d37f122721c2",
     "electron/source-export.cjs": "cd9b25bd9112fb815515e357b1d21aff6ddbd28e434dc56d3313798b59c647d7",
-    "scripts/test-source-export.cjs": "180b7e36dcc606db59c537ca20919d16f49f32a5f3a456a0df325857e9cf333b"
+    "scripts/test-source-export.cjs": "180b7e36dcc606db59c537ca20919d16f49f32a5f3a456a0df325857e9cf333b",
+    "electron/workbench-launcher.cjs": "4c4be688df75af53e4f3096b7bc79fb9ff1602b453035284f21678cdd09e9a1e",
+    "scripts/test-workbench-launcher.cjs": "7f8b06760edbfad52760895efa82f95b3a5300231f42b4c2df06de9fce75b965",
+    "scripts/test-promotion-fee-login-diagnostic.cjs": "eb29cfa72892cec31c5835326430c83f0b09a3e524405bf3ad0cc066f99e5143",
+    "scripts/test-result-merge.cjs": "ead34fab2244a22078a9394963a3de7fc0085bd8d21f6e8a2291d351f7b4e536",
+    "scripts/test-save-recovery.cjs": "1e6207eb9a64e8ae5201723cc91d404b88ddf938a6483b8f93ad2ac596ff20ce",
+    "scripts/test-promotion-fee-login-check.cjs": "a9fa437df10dec95f72a2a6ba3cb635b0a40490722143b93d8fd8d32330084df"
   },
   "changes": [
-    {
-      "date": "2026-10-23",
-      "reason": "账号列表选择列表头新增全选复选控件：支持全选、取消全选与部分选中提示，空列表及登录/查询期间禁用，保持原单项选择和查询逻辑。"
-    },
     {
       "date": "2026-10-23",
       "reason": "各支持平台自动登录统一分阶段填写：账号后等待500ms、密码后等待1000ms，提交前重读输入值与认证状态；主进程每100ms检查取消，不挂页面延迟点击。字段被人工修改则停止，验证码/协议不绕过，未知提交仍仅预填。实际Electron经真实frame聚合验收阶段顺序和间隔。"
@@ -230,7 +232,11 @@
     {
       "date": "2026-11-10",
       "reason": "v1.2.82：源码快照随安装包内置（electron-builder extraResources → resources/source-snapshot.zip），界面右上角新增「导出源码包」一键导出到桌面；新增 electron/source-export.cjs（ZIP 头校验、导出后回读大小、失败清理临时文件）。"
+    },
+    {
+      "date": "2026-11-10",
+      "reason": "v1.2.83：把财务工作台（FinanceHub，本机 8765 端口数据服务）作为 extraResources 内置进 exe，界面右上角新增「打开工作台」按钮；新增 electron/workbench-launcher.cjs（PE 头校验定位、首次复制到 userData/workbench 再拉起、端口探测判断已在运行/启动成功）。"
     }
   ],
-  "updatedAt": "2026-11-10T09:21:52.492Z"
+  "updatedAt": "2026-11-10T09:48:52.829Z"
 }

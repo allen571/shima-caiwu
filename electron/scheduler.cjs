@@ -52,8 +52,10 @@ class Scheduler{
   this.data=this.load();
  }
  load(){
-  try{return {enabled:false,time:'08:30',autoExport:true,autoStart:false,history:[],lastRun:null,...JSON.parse(fs.readFileSync(this.file,'utf8'))};}
-  catch(e){return {enabled:false,time:'08:30',autoExport:true,autoStart:false,history:[],lastRun:null};}
+  // v1.2.84 autoDetailDownload：计划跑完后自动逐家下载 T-1 单日资金明细（行级「下载明细」）；
+  // 默认开，老配置文件里没有这个键也走默认值
+  try{return {enabled:false,time:'08:30',autoExport:true,autoStart:false,autoDetailDownload:true,history:[],lastRun:null,...JSON.parse(fs.readFileSync(this.file,'utf8'))};}
+  catch(e){return {enabled:false,time:'08:30',autoExport:true,autoStart:false,autoDetailDownload:true,history:[],lastRun:null};}
  }
  save(){
   try{
@@ -65,12 +67,13 @@ class Scheduler{
  state(){
   return {
    enabled:!!this.data.enabled,time:this.data.time,autoExport:!!this.data.autoExport,autoStart:!!this.data.autoStart,
+   autoDetailDownload:this.data.autoDetailDownload!==false,
    running:this.running,phaseText:this.phaseText,lastRun:this.data.lastRun,history:this.data.history.slice(-30).reverse(),
    busy:this.service&&this.service.busy,fundBusy:this.fund&&(this.fund.busy||this.fund.downloadBusy||this.fund.diagnosing)
   };
  }
  configure(patch){
-  const allowed=['enabled','time','autoExport','autoStart'];
+  const allowed=['enabled','time','autoExport','autoStart','autoDetailDownload'];
   for(const k of allowed)if(k in patch){
    if(k==='time'&&!/^\d{2}:\d{2}$/.test(String(patch.time)))throw Error('时间格式应为 HH:MM');
    this.data[k]=patch[k];
@@ -195,8 +198,10 @@ class Scheduler{
    const inR2P=new Set(round2P.map(r=>r.shopId)),inR2F=new Set(round2F.map(r=>r.shopId));
    record.rows=shops.map(s=>{
     const p2=curP.get(s.id),f2=curF.get(s.id);
-    // 推广费成功 = completed 且两轮后仍无「无/财务号」子账户（有则视为待核对，计入失败，避免漏数）
-    const pOk=p2&&p2.status==='completed'&&!promoSuspect(p2);
+    // v1.2.91（用户 2026-11-11 口径）：推广费成功 = completed；「无/财务号」子账户两轮核对后仍是
+    // 无数据的（财务号结构性无金额、「无」即当前无推广，重查也不会变）→ 统一按没数据处理，
+    // 不计失败、不写红字说明；行上保留 suspect 标记供界面显示灰色「无数据」徽标。
+    const pOk=p2&&p2.status==='completed';
     const fOk=f2&&f2.status==='completed';
     const isFundShop=['taobao','tmall'].includes(s.platform||'taobao');
     const promo=p2||p1.get(s.id);
@@ -209,19 +214,41 @@ class Scheduler{
      promo:promo?{status:promo.status,amountCents:promo.amountCents??null,round:pRound,suspect:!!pSuspect}:null,
      fund:isFundShop?(fund?{status:fund.status,incomeCents:fund.incomeCents??null,expenseCents:fund.expenseCents??null,incomeCount:fund.incomeCount??null,expenseCount:fund.expenseCount??null,balanceCents:fund.balanceCents??null,round:fRound}:{status:'missing',round:null}):null,
      error:[
-      promo&&!pOk?(pSuspect?'存在「无/财务号」推广账户，两轮后仍需人工核对':promo.error):'',
+      promo&&!pOk?promo.error:'',
       isFundShop&&fund&&!fOk?fund.error:''
      ].filter(Boolean).join('；')
     };
    });
-   const isRound1Ok=r=>r.promo&&r.promo.status==='completed'&&!r.promo.suspect&&r.promo.round===1&&(!r.fund||(r.fund.status==='completed'&&r.fund.round===1));
-   const isOk=r=>r.promo&&r.promo.status==='completed'&&!r.promo.suspect&&(!r.fund||r.fund.status==='completed');
+   const isRound1Ok=r=>r.promo&&r.promo.status==='completed'&&r.promo.round===1&&(!r.fund||(r.fund.status==='completed'&&r.fund.round===1));
+   const isOk=r=>r.promo&&r.promo.status==='completed'&&(!r.fund||r.fund.status==='completed');
    const ok1=record.rows.filter(isRound1Ok).length;
    const ok2=record.rows.filter(r=>isOk(r)&&!isRound1Ok(r)).length;
    const failed=record.rows.filter(r=>!isOk(r)).length;
    const manualCount=record.rows.filter(r=>r.promo&&r.promo.status==='manual').length;
    record.summary={total:record.rows.length,okRound1:ok1,okRound2:ok2,failed,manual:manualCount};
    record.status=failed?'partial':'done';
+   // —— v1.2.84 自动下载当日明细：资金已完成的淘宝/天猫店逐家下载 T-1 单日「下载明细」。
+   // 串行执行（资金模块同一时刻只允许一个下载任务），单家失败只记在该行，不影响计划成败；
+   // 京东店与资金未完成的店跳过。开关 autoDetailDownload 默认开，计划卡片可关。
+   if(this.data.autoDetailDownload!==false&&typeof this.fund.downloadDay==='function'){
+    const detailRows=record.rows.filter(r=>['taobao','tmall'].includes(r.platform)&&r.fund&&r.fund.status==='completed');
+    let files=0,noData=0,dFail=0;
+    for(let i=0;i<detailRows.length;i++){
+     const row=detailRows[i];
+     this.phaseText='每日计划（'+day+'）自动下载当日明细：'+row.shopName+'（'+(i+1)+'/'+detailRows.length+'，已得 '+files+' 份）';
+     try{
+      const res=await this.fund.downloadDay({shopId:row.shopId,date:day});
+      row.detailFiles=(res.files||[]).length;
+      files+=row.detailFiles;
+      if(res.note){row.detailNote=res.note;noData++;}
+     }catch(e){
+      row.detailFiles=0;row.detailError=e.message;dFail++;
+     }
+    }
+    record.summary.detail={shops:detailRows.length,files,noData,failed:dFail};
+    this.phaseText='每日计划（'+day+'）完成：一轮成功 '+ok1+'，二轮成功 '+ok2+'，仍失败 '+failed+(manualCount?'（其中需人工验证 '+manualCount+' 家）':'')
+     +'；明细文件 '+files+' 份'+(noData?'（暂无数据 '+noData+' 家）':'')+(dFail?'，下载失败 '+dFail+' 家':'');
+   }
    record.finishedAt=new Date().toISOString();
    this.phaseText='每日计划（'+day+'）完成：一轮成功 '+ok1+'，二轮成功 '+ok2+'，仍失败 '+failed+(manualCount?'（其中需人工验证 '+manualCount+' 家）':'');
    // —— 自动导出 Excel（先导出，导出文件路径进 lastRun/历史）——
@@ -245,15 +272,23 @@ class Scheduler{
  }
  // 结果落 Excel：日期|店铺|平台|推广费|推广费状态|轮次|资金收入|资金支出|期末余额|资金状态|轮次|说明
  exportExcel(record){
-  const head=['计划日期','店铺','平台','推广费（元）','推广费状态','推广费轮次','资金收入笔数','资金收入（元）','资金支出笔数','资金支出（元）','期末余额（元）','资金状态','资金轮次','说明'];
+  const head=['计划日期','店铺','平台','推广费（元）','推广费状态','推广费轮次','资金收入笔数','资金收入（元）','资金支出笔数','资金支出（元）','期末余额（元）','资金状态','资金轮次','明细文件','说明'];
   const cents=v=>v===null||v===undefined?'':(v/100).toFixed(2);
-  const promoStatus=r=>r.suspect?'待核对(含无/财务号)':r.status==='manual'?'需人工验证':r.status;
+  // v1.2.91：「无/财务号」子账户两轮后仍无数据 → 按无数据处理（不算失败/待核对）
+  const promoStatus=r=>r.suspect?(r.amountCents==null?'无数据(财务号/无)':'部分无数据(财务号/无)'):r.status==='manual'?'需人工验证':r.status;
+  // v1.2.84：明细文件列——淘宝/天猫店显示份数（0 个/暂无数据也如实标），京东店留空
+  const detailCell=r=>{
+   if(!['taobao','tmall'].includes(r.platform)||!r.fund||r.fund.status!=='completed')return '';
+   if(r.detailFiles==null)return '未下载';
+   return String(r.detailFiles)+' 个'+(r.detailNote?'（暂无数据）':'');
+  };
   const rows=record.rows.map(r=>[
    record.date,r.shopName,r.platform,
    r.promo?cents(r.promo.amountCents):'',r.promo?promoStatus(r.promo):'',r.promo&&r.promo.round?r.promo.round:'',
    r.fund&&r.fund.incomeCount!=null?r.fund.incomeCount:'',r.fund?cents(r.fund.incomeCents):'',r.fund&&r.fund.expenseCount!=null?r.fund.expenseCount:'',r.fund?cents(r.fund.expenseCents):'',r.fund?cents(r.fund.balanceCents):'',
    r.fund?r.fund.status:'',r.fund&&r.fund.round?r.fund.round:'',
-   r.error||''
+   detailCell(r),
+   [r.error,r.detailError?'明细下载失败：'+r.detailError:'',r.detailNote&&r.detailFiles?r.detailNote:''].filter(Boolean).join('；')||''
   ]);
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
   ws['!cols']=head.map(h=>({wch:Math.max(10,String(h).length+2)}));

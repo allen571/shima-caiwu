@@ -29,6 +29,9 @@ def entries():
                     continue
                 p = os.path.join(root, name)
                 rel = os.path.relpath(p, SRC).replace('\\', '/')
+                # 内置的第三方工作台程序（22.9 MB 二进制）不算源码，只保留同目录的说明文件
+                if rel.startswith('assets/workbench/') and name.lower().endswith('.exe'):
+                    continue
                 yield p, rel
 
 count = 0

@@ -19,3 +19,26 @@
 .pf-authorization-notices{margin:16px 0;padding:14px 16px;border:1px solid #f0d5a2;border-radius:9px;background:#fff9ee;color:#80551d;font-size:12px}.pf-authorization-notices[hidden]{display:none}.pf-authorization-notices h3{font-size:13px;margin:0 0 10px}.pf-authorization-notices ul{margin:0;padding-left:18px;display:grid;gap:12px}.pf-authorization-notices li>span,.pf-authorization-notices li>small{display:block;line-height:1.7;overflow-wrap:anywhere}.pf-authorization-notices small{color:#8a7560}.pf-notices-toggle{display:flex;align-items:center;gap:5px;width:100%;border:0;background:none;padding:0;font:inherit;font-size:13px;font-weight:700;color:#80551d;cursor:pointer;text-align:left}.pf-notices-toggle small{font-weight:400;margin-left:auto;text-align:right}.pf-notices-arrow{font-style:normal;width:11px;flex:none}.pf-authorization-notices ul:not([hidden]){margin-top:10px}.pf-authorization-notices ul[hidden]{display:none}
 .pf-shop-count{display:inline-block;margin-left:10px;font-size:12px;font-weight:500;color:#5b6b8c;background:#f1f4ff;padding:4px 10px;border-radius:12px;vertical-align:middle;white-space:nowrap}
 .pf-search{display:flex;align-items:center;gap:10px;margin:14px 0 4px;flex-wrap:wrap}.pf-search input{flex:0 1 320px;min-height:36px;padding:8px 12px;border:1px solid #cdd5df;border-radius:8px;font-size:13px;background:#fff}.pf-search input:focus{border-color:#8ba0e8}.pf-search button{white-space:nowrap}
+
+/* v1.2.84：需人工验证醒目化——横幅 + 结果行高亮 */
+.pf-manual-banner{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:16px 0;padding:14px 18px;background:#fff7e6;border:1px solid #ffc069;border-left:6px solid #e8830c;border-radius:10px}
+.pf-manual-banner[hidden]{display:none}
+.pf-manual-banner strong{color:#9a5200;font-size:15px;white-space:nowrap}
+.pf-manual-banner .pf-manual-names{color:#7a4a00;font-weight:600;line-height:1.7;flex:1 1 320px;overflow-wrap:anywhere}
+.pf-manual-banner small{color:#9a7b45;width:100%;line-height:1.7}
+.pf-row-manual td{background:#fff7e6}
+.pf-row-manual .pf-result-status{background:#e8830c;color:#fff;font-weight:700}
+.pf-total-counts span b{color:#ad4e00}
+
+/* v1.2.87：结果表「显示历史记录」开关与历史行灰显（历史行不计入合计） */
+.pf-show-all{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:#5a6472;white-space:nowrap}.pf-show-all input{margin:0}
+.pf-table tr.pf-row-history td{background:#fafbfc;color:#98a1ac}
+
+/* v1.2.88：一键验证登录状态——会话检测徽标（跟随登录状态徽标排版） */
+.pf-check-badge{display:flex;align-items:center;gap:5px;margin-top:3px;font-size:11px;line-height:16px;font-weight:600;white-space:nowrap}
+.pf-check-badge i{width:5px;height:5px;flex:none;border-radius:50%;background:#a4adbb}
+.pf-check-badge.is-ok{color:#237449}.pf-check-badge.is-ok i{background:#3c9b70}
+.pf-check-badge.is-expired{color:#9a5200}.pf-check-badge.is-expired i{background:#e8830c}
+.pf-check-badge.is-verification{color:#ad3f32}.pf-check-badge.is-verification i{background:#d95846}
+.pf-check-badge.is-rejected{color:#ad3f32}.pf-check-badge.is-rejected i{background:#d95846}
+.pf-check-badge.is-unknown{color:#8a94a6}.pf-check-badge.is-unknown i{background:#a4adbb}

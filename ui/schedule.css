@@ -58,6 +58,7 @@
 .sc-round.is-r2{background:#fdf1dc;color:#b0762f}
 .sc-round.is-fail{background:#fdf3f1;color:#b03a2e}
 .sc-round.is-warn{background:#fdf1dc;color:#b0762f}
+.sc-round.is-none{background:#f0f1f3;color:#7a828c}
 .sc-table{overflow-x:auto;display:none;padding:0 6px 6px}
 .sc-record.is-open .sc-table{display:block}
 .sc-table table{width:100%;border-collapse:collapse;font-size:13px}
@@ -66,3 +67,8 @@
 .sc-err{display:block;color:#b03a2e;max-width:280px;overflow:hidden;text-overflow:ellipsis;cursor:help}
 .sc-ok{color:#b9aa93}
 .sc-empty{font-size:13px;color:#8a7560;padding:8px 4px}
+
+/* v1.2.89：运行记录默认只显示最近 3 条，「显示更早 / 收起」开关 */
+.sc-history-more{margin-top:8px;text-align:center}
+.sc-history-more button{border:0;background:none;color:#8a6a3f;font-size:12px;cursor:pointer;padding:5px 12px;border-radius:6px}
+.sc-history-more button:hover{background:#faf5ec;text-decoration:underline}

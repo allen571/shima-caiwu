@@ -3,7 +3,7 @@ const yuan=c=>c==null?'—':(c/100).toLocaleString('zh-CN',{minimumFractionDigit
 const STATUS={queued:'排队中',running:'抓取中',completed:'完成',failed:'失败',paused:'已暂停'};
 
 window.FundSummary={async mount(host){
- let state,selected=new Set(),timer,acting=false,actingSeq=0,shopsOpen=false,retrying=false,batching=false;
+ let state,selected=new Set(),timer,acting=false,actingSeq=0,shopsOpen=false,retrying=false,batching=false,showAll=false;
  const now=new Date(Date.now()+28800000).toISOString().slice(0,7);
  host.innerHTML=`<div class="fund-summary">
   <section class="fs-card">
@@ -23,7 +23,7 @@ window.FundSummary={async mount(host){
    <p id="fs-message" class="fs-message" data-error="false"></p>
   </section>
   <section class="fs-card">
-   <div class="fs-heading"><div><span class="fs-eyebrow">抓取结果</span><h2 id="fs-progress"></h2></div></div>
+   <div class="fs-heading"><div><span class="fs-eyebrow">抓取结果</span><h2 id="fs-progress"></h2></div><label class="fs-show-all" title="显示更早日期的历史记录（灰显，不计入完成数）"><input type="checkbox" id="fs-show-all">显示历史记录</label></div>
    <div class="fs-table"><table><thead><tr><th>店铺</th><th>月份</th><th>状态</th><th>明细笔数</th><th>收入笔数</th><th>收入金额（元）</th><th>支出笔数</th><th>支出金额（元）</th><th>期末余额（元）</th><th>导出</th></tr></thead><tbody id="fs-results"></tbody></table></div>
   </section>
  </div>`;
@@ -43,9 +43,11 @@ window.FundSummary={async mount(host){
    $('#fs-shops').hidden=!shopsOpen;
    $('#fs-shops').innerHTML=shops.map(s=>`<label class="fs-shop ${selected.has(s.id)?'is-selected':''}"><input type="checkbox" data-fund-select="${s.id}" ${selected.has(s.id)?'checked':''} aria-label="选择${esc(s.name)}"><small class="fs-tag">${s.platform==='tmall'?'天猫':'淘宝'}</small><span>${esc(s.name)}</span>${s.loginNeedsAttention?'<small>需重新登录</small>':''}</label>`).join('');
   }
-  const rows=state.results||[],done=rows.filter(r=>r.status==='completed').length,failed=rows.filter(r=>['failed','paused'].includes(r.status)).length;
-  $('#fs-progress').textContent=rows.length?`完成 ${done}/${rows.length}${failed?` · 待处理 ${failed}`:''}${state.phase?' · '+state.phase:''}`:'还没有抓取记录';
-  $('#fs-results').innerHTML=rows.map(r=>`<tr class="is-${r.status}"><td>${esc(r.shopName)}</td><td>${esc(r.month)}${r.source?`<small class="fs-src" title="${esc(r.source)}${r.days?'：'+r.days+' 天':''}">${esc(r.source)}${r.days?' '+r.days+'天':''}</small>`:''}</td><td>${STATUS[r.status]||r.status}${r.error?`<small title="${esc(r.error)}">${esc(r.error.length>26?r.error.slice(0,26)+'…':r.error)}</small>`:''}${r.note?`<small class="fs-note" title="${esc(r.note)}">备注</small>`:''}</td><td>${r.detailCount??'—'}</td><td>${r.incomeCount??'—'}</td><td>${yuan(r.incomeCents)}</td><td>${r.expenseCount??'—'}</td><td>${yuan(r.expenseCents)}</td><td>${yuan(r.balanceCents)}</td><td>${r.month<now?`<button data-monthly="${r.shopId}" data-month="${esc(r.month)}" title="历史满月：到月汇总页填该月月份区间后点官方「导出」，下载该月的月汇总总计文件（月汇总只在整月结束后出账）" ${state.downloadBusy?'disabled':''}>月汇总</button> `:''}<button data-daily="${r.shopId}" data-month="${esc(r.month)}" title="到日汇总页按该月（如 202610 = 10-01 ~ 10-31）填日期后点官方「导出」，下载 billAgg_起_止 的 xlsx 原表格" ${state.downloadBusy?'disabled':''}>下载明细</button> <button data-detail="${r.shopId}" data-month="${esc(r.month)}" ${state.downloadBusy?'disabled':''}>收支明细</button></td></tr>`).join('')||'<tr><td colspan="10">选择月份并勾选店铺后，点「一键抓取所选」。</td></tr>';
+  const rows=state.results||[],current=rows.filter(r=>!r.carriedOver),done=rows.filter(r=>r.status==='completed').length,failed=current.filter(r=>['failed','paused'].includes(r.status)).length;
+  // v1.2.87：历史记录默认不显示（避免 11-04/11-06 的旧失败行堆在表里像「全失败」），勾选后灰显追加
+  const histRows=showAll?(state.stale||[]).map(r=>({...r,isHistory:true})):[],shown=[...histRows,...rows];
+  $('#fs-progress').textContent=rows.length?`完成 ${done}/${current.length}${failed?` · 待处理 ${failed}`:''}${state.phase?' · '+state.phase:''}`:'还没有抓取记录';
+  $('#fs-results').innerHTML=shown.map(r=>`<tr class="is-${r.status}${r.carriedOver?' is-carried':''}${r.isHistory?' is-history':''}"><td>${esc(r.shopName)}${r.isHistory?'<small class="fs-note">历史记录 · 不计入合计</small>':''}${r.carriedOver?'<small class="fs-note" title="该店本轮重抓未成功，此处显示上一轮已获取的结果，金额仍计入合计">上一轮结果</small>':''}</td><td>${esc(r.month)}${r.source?`<small class="fs-src" title="${esc(r.source)}${r.days?'：'+r.days+' 天':''}">${esc(r.source)}${r.days?' '+r.days+'天':''}</small>`:''}</td><td>${STATUS[r.status]||r.status}${r.error?`<small title="${esc(r.error)}">${esc(r.error.length>26?r.error.slice(0,26)+'…':r.error)}</small>`:''}${r.note?`<small class="fs-note" title="${esc(r.note)}">备注</small>`:''}</td><td>${r.detailCount??'—'}</td><td>${r.incomeCount??'—'}</td><td>${yuan(r.incomeCents)}</td><td>${r.expenseCount??'—'}</td><td>${yuan(r.expenseCents)}</td><td>${yuan(r.balanceCents)}</td><td>${r.month<now?`<button data-monthly="${r.shopId}" data-month="${esc(r.month)}" title="历史满月：到月汇总页填该月月份区间后点官方「导出」，下载该月的月汇总总计文件（月汇总只在整月结束后出账）" ${state.downloadBusy?'disabled':''}>月汇总</button> `:''}<button data-daily="${r.shopId}" data-month="${esc(r.month)}" title="到日汇总页按该月（如 202610 = 10-01 ~ 10-31）填日期后点官方「导出」，下载 billAgg_起_止 的 xlsx 原表格" ${state.downloadBusy?'disabled':''}>下载明细</button> <button data-detail="${r.shopId}" data-month="${esc(r.month)}" ${state.downloadBusy?'disabled':''}>收支明细</button></td></tr>`).join('')||'<tr><td colspan="10">选择月份并勾选店铺后，点「一键抓取所选」。</td></tr>';
   const locked=acting||state.busy||state.downloadBusy||state.diagnosing;
   $('#fs-start').disabled=locked;
   $('#fs-start-manual').disabled=locked;$('#fs-diagnose').disabled=locked;
@@ -58,6 +60,9 @@ window.FundSummary={async mount(host){
   // v1.2.80：抓取后自动下载开关（真值来源在主进程，勾选状态随状态轮询同步）
   const autoBox=$('#fs-auto-download');
   if(autoBox){autoBox.checked=state.autoDownload!==false;autoBox.disabled=state.busy||state.downloadBusy;}
+  // v1.2.87：历史记录开关（默认隐藏更早日期的旧记录）
+  const showAllBox=$('#fs-show-all');
+  if(showAllBox){showAllBox.checked=showAll;showAllBox.onchange=e=>{showAll=e.target.checked;render();};}
   // 打开/更改导出文件夹是轻量操作，不参与主任务锁（v1.2.33）：主任务卡住时它们必须仍可用
   // 暂停在抓取/导出/诊断期间都要可点（v1.2.31）：导出卡住时它是唯一逃生门，此前灰死只能重开软件
   $('#fs-pause').disabled=!(state.busy||state.downloadBusy||state.diagnosing);

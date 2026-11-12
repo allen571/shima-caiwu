@@ -1,5 +1,5 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm');const {jdCalendar,jdDateInput,JdPromotionFee}=require('../electron/promotion-fee-jd.cjs');
+const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm');const {jdCalendar,jdDateInput,jdDismissNotice,JdPromotionFee}=require('../electron/promotion-fee-jd.cjs');
 function calendar(hit=true,popup=null){let clicks=0;const em={getBoundingClientRect:()=>({x:10,y:20,width:20,height:20})};const cell={className:'jad-date-picker-cell',innerText:'1',getClientRects:()=>[{}],closest:selector=>selector==='.jad-dropdown-popper'?popup:null,querySelector:()=>em,contains:v=>v===em,click:()=>clicks++};const panel={getClientRects:()=>[{}],closest:()=>null,querySelectorAll:s=>s.includes('header-label')?[{innerText:'2026'},{innerText:'10'}]:[cell]};const context={document:{querySelectorAll:()=>[panel],elementFromPoint:()=>hit?em:{}},getComputedStyle:()=>({visibility:'visible'})};const value=vm.runInNewContext('('+jdCalendar.toString()+')("2026-10-01")',context);return {value,clicks};}
 test('日期查找仅返回命中坐标，不执行DOM click',()=>{const {value,clicks}=calendar();assert.equal(value.action,'selected');assert.equal(value.x,20);assert.equal(value.y,30);assert.equal(clicks,0);});
 test('动画遮挡日期文字时返回waiting，不误点',()=>{assert.equal(calendar(false).value,'waiting');});
@@ -23,6 +23,35 @@ test('日期输入未就绪和遮挡只返回等待及真实短原因，不抛�
  const blocked=read();assert.equal(blocked.action,'waiting');assert.match(blocked.reason,/跨PIN/);assert.equal(blocked.x,undefined);
  hit=input;const ready=read();assert.equal(ready.action,'ready');assert.equal(ready.x,20);assert.equal(ready.y,30);
  hit={innerText:'长'.repeat(500)};assert.equal(read().reason,'日期筛选被遮挡，未点击');
+});
+
+function dismissContext(blocker,closes){
+ const input={getClientRects:()=>[{}],getBoundingClientRect:()=>({x:10,y:20,width:20,height:20}),contains:()=>false,closest:()=>null};
+ let removed=false;
+ blocker=Object.assign({getBoundingClientRect:()=>({x:10,y:20,width:100,height:20}),querySelectorAll:()=>closes||[],remove:()=>{removed=true;},parentElement:{}},blocker);
+ const context={document:{querySelectorAll:()=>[input],elementFromPoint:()=>blocker},getComputedStyle:()=>({visibility:'visible'})};
+ const result=vm.runInNewContext('('+jdDismissNotice.toString()+')()',context);
+ return {result,removed};
+}
+const noticeBase={innerText:'京小通有新消息',className:'im-bubble',closest:()=>null,getAttribute:()=>null};
+test('京小通气泡遮挡日期框：无关闭钮时移除节点',()=>{
+ const {result,removed}=dismissContext(noticeBase);assert.equal(result,'removed');assert.equal(removed,true);
+});
+test('京小通气泡有可见关闭钮时优先点关闭，不移除节点',()=>{
+ const close={getClientRects:()=>[{}],closest:()=>null,click:()=>{}};
+ const {result,removed}=dismissContext(noticeBase,[close]);assert.equal(result,'closed');assert.equal(removed,false);
+});
+test('非通知类遮挡不触碰，交回原有重试逻辑',()=>{
+ const {result,removed}=dismissContext({innerText:'账户管家跨PIN模式无权限',className:'',closest:()=>null,getAttribute:()=>null});
+ assert.equal(result,null);assert.equal(removed,false);
+});
+test('setDates 等待循环遇被遮挡会执行关气泡再轮询',async()=>{
+ let dismisses=0,ready=false,reads=0;const host={assertWindow:()=>({}),execute:async(w,code)=>code.includes('function jdDateInput')?(ready?{action:'ready',x:10,y:10}:{action:'waiting',reason:'日期筛选被遮挡，未点击：京小通有新消息'}):code.includes('function jdDismissNotice')?(dismisses++,ready=true,null):{action:'selected',x:20,y:20}};
+ const jd=new JdPromotionFee({host});jd.closeCalendar=async()=>{};
+ jd.dateState=async()=>{reads++;return reads>6?{open:false,headers:'10',selection:'x',value:'2026-10-01 ~ 2026-10-01',cells:'z'}:{open:true,headers:'10',selection:'same',value:'',cells:reads%2?'a':'b'};};
+ jd.stableClick=async(w,locate)=>locate();
+ await jd.setDates({}, {start:'2026-10-01',end:'2026-10-01'});
+ assert.ok(dismisses>=1,'关气泡应被调用');
 });
 
 test('日期更新等待期间暂停立即退出，不重试点击',async()=>{

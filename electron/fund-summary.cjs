@@ -3,6 +3,17 @@
 // 复用推广费服务的窗口、会话与登录核验（host 传入 PromotionFee 实例），不改动千牛推广费抓取逻辑。
 const fs=require('node:fs'),path=require('node:path'),{randomUUID}=require('node:crypto'),{net}=require('electron');
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
+// v1.2.87：结果表默认只显示「今天/昨天」的记录（与推广费同口径）。此前每店历史最新一行全部显示，
+// 11-04/11-06 的失败行一直挂在表里，财务会误以为刚跑的批次全失败。历史行保留，随 state().stale 返回。
+const BJS_OFFSET=8*3600000;
+function rowRecent(row,now){
+ const t=now||Date.now(),yesterday=new Date(t+BJS_OFFSET-86400000).toISOString().slice(0,10);
+ if(row.updatedAt){const parsed=Date.parse(row.updatedAt);if(Number.isFinite(parsed)){const day=new Date(parsed+BJS_OFFSET).toISOString().slice(0,10);if(day>=yesterday)return true;}}
+ const settled=row.day||'';
+ // 完全没有时间信息（老版本写入的行）不做判断，保留显示
+ if(!row.updatedAt&&!settled)return true;
+ return !!settled&&settled>=yesterday;
+}
 const FUND_EARLIEST='2024-08'; // 官方公告：最早支持 2024年8月 的数据
 const KINDS={daily:'日汇总',detail:'收支明细',month:'月汇总'};
 // 用户提供的官方直达链接（2026-11 实测有效）：直接 load 跳转，绕过工作台菜单导航；菜单探测仅作兜底
@@ -636,7 +647,26 @@ class FundSummary{
    new Promise((_,rej)=>{const t=setTimeout(()=>rej(Error('等待该店铺登录/页面就绪超过 5 分钟，已中止本次任务（官方窗口可能还在等人工登录）——请在官方窗口完成登录后再重试')),LOGIN_GUARD_MS);if(t.unref)t.unref();}),
   ]);
  }
- state(){const last=this.data.results.at(-1)?.runId;return {results:this.data.results.filter(r=>r.runId===last),busy:this.busy,downloadBusy:this.downloadBusy,diagnosing:this.diagnosing,manual:this.manual,manualPending:this.manualPendingInfo,phase:this.busy||this.downloadBusy||this.diagnosing?this.phaseText:'',error:this.busy||this.downloadBusy?'':this.lastError,exportFolder:this.exportFolder(),exportFolderCustom:!!this.data.exportFolder,autoDownload:this.autoDownload(),batchDone:[...this.batchDone],shops:this.host.data.shops.map(({secret,...s})=>({id:s.id,name:s.name,platform:s.platform||'taobao',username:s.username,loginConfirmedAt:s.loginConfirmedAt||null,loginNeedsAttention:!!s.loginNeedsAttention}))};}
+ state(){
+  // v1.2.85 显示合并（与推广费同口径，2026-11-11 财务反馈「重抓后第一轮的数据看不到」）：
+  // 每店显示最新一行；最新一行失败/已暂停/需人工时，把该店上一轮已获取的结果一并显示
+  //（carriedOver 标注），完成数与合计仍按「每店最新已获取」计算。落盘数据不改动。
+  const all=this.data.results||[];
+  const lastIdx=new Map();
+  for(let i=0;i<all.length;i++){const r=all[i];if(!r.shopId)continue;lastIdx.set(r.shopId,i);}
+  const latest=[...lastIdx.values()].map(i=>all[i]);
+  const now=Date.now(),carried=[];const carriedSeen=new Set();
+  for(const r of latest){
+   // 同推广费：只有最新一行是近期的失败/暂停才回显上一轮结果，避免孤立旧行
+   if(!r.shopId||!['failed','manual','paused'].includes(r.status)||!rowRecent(r,now))continue;
+   for(let i=all.length-1;i>=0;i--){const o=all[i];if(o.shopId===r.shopId&&o.status==='completed'&&!carriedSeen.has(r.shopId)){carriedSeen.add(r.shopId);carried.push({...o,carriedOver:true});break;}}
+  }
+  // v1.2.87：近期行（今天/昨天）进表，更早的失败/暂停记录归入 stale，默认不显示。
+  // 最新一轮的行一律保留（允许用户查很久以前的自定义区间）。
+  const allRows=[...carried,...latest],lastRun=all.at(-1)?.runId;
+  const keep=r=>r.carriedOver||(!!lastRun&&r.runId===lastRun)||rowRecent(r,now);
+  const recent=allRows.filter(keep),stale=allRows.filter(r=>!keep(r));
+  return {results:recent,stale,busy:this.busy,downloadBusy:this.downloadBusy,diagnosing:this.diagnosing,manual:this.manual,manualPending:this.manualPendingInfo,phase:this.busy||this.downloadBusy||this.diagnosing?this.phaseText:'',error:this.busy||this.downloadBusy?'':this.lastError,exportFolder:this.exportFolder(),exportFolderCustom:!!this.data.exportFolder,autoDownload:this.autoDownload(),batchDone:[...this.batchDone],shops:this.host.data.shops.map(({secret,...s})=>({id:s.id,name:s.name,platform:s.platform||'taobao',username:s.username,loginConfirmedAt:s.loginConfirmedAt||null,loginNeedsAttention:!!s.loginNeedsAttention}))};}
  async clickText(win,target){
   // 菜单可能在 iframe 里：跨所有子 frame 尝试点击文本
   const wc=this.host.assertWindow(win),frames=(wc&&wc.mainFrame&&wc.mainFrame.framesInSubtree)||[];
@@ -1951,7 +1981,9 @@ class FundSummary{
  // v1.2.37 行级下载明细（用户 2026-11-05 截图指正）：日汇总表格每行右侧有「下载明细」链接，
  // 逐行点击即下载该日流水文件——这才是拿明细的正路；右上角「导出」出的只是汇总文件
  //（13:23 诊断实锤合成点「导出」从未排队）。逐页处理：等本页行稳定 → 逐行点击等下载 → 翻页
- async downloadDailyRows(win,{shop,label,month,dir,prefix}){
+ // v1.2.84 onlyDate（单日模式）：只处理指定日期那一行。防止 fillDates 被官方控件重置后
+ // 表格回到默认区间（上月~本月），把整月行全下一遍——每日计划场景这是重复劳动。
+ async downloadDailyRows(win,{shop,label,month,dir,prefix,onlyDate}){
   const yyyymm=month.replace('-','');
   const oldIdle=this.downloadIdleMs,oldTimeout=this.exportTimeoutMs;
   // 行级流程禁用 10 秒静默结算：行与行之间的等待绝不能把下载上下文提前收走；
@@ -1977,6 +2009,9 @@ class FundSummary{
      await wait(900);
     }
     if(!rows||!rows.length)break;
+    // v1.2.84：单日模式只保留目标日期那一行（官方控件重置日期时也绝不多下）
+    if(onlyDate)rows=rows.filter(r=>r.date===onlyDate);
+    if(!rows.length)break;
     for(let i=0;i<rows.length;i++){
      const d=rows[i].date;
      if(seen.has(d))continue;seen.add(d);total++;
@@ -2030,10 +2065,13 @@ class FundSummary{
     const st=await this.inspectAll(win).catch(()=>null);
     if(st&&st.empty){
      const c0=this.downloadCtx;if(c0){this.downloadCtx=null;clearTimeout(c0.timer);clearTimeout(c0.idle);}
+     const scopeText=onlyDate?onlyDate.replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3')+' 当天':month+' 整月';
      this.log('rows-empty',shop.name+' '+month+' 页面显示暂无数据');
-     return {files:[],note:label+'页显示暂无数据（'+month+' 没有流水），无需生成明细'};
+     return {files:[],note:label+'页显示暂无数据（'+scopeText+'没有流水），无需生成明细'};
     }
-    throw Error(label+'表没有 '+month+' 的行可下载明细（请确认已按该月查询出数据），请补查');
+    throw Error(onlyDate
+     ?label+'表没有 '+onlyDate.replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3')+' 的明细行：该日可能无流水，或日期区间被官方控件重置，请补查'
+     :label+'表没有 '+month+' 的行可下载明细（请确认已按该月查询出数据），请补查');
    }
    const c=this.downloadCtx;
    if(c)c.settle();
@@ -2138,6 +2176,71 @@ class FundSummary{
   }
   finally{
    this.downloadBusy=false;this.phaseText='';
+  }
+ }
+ // v1.2.84 单日明细下载（每日计划跑完后自动调，也可单独触发）：日汇总页按 date~date 查询，
+ // 只下该日一行的行级「下载明细」。与整月批量下载的区别：区间填单日 + onlyDate 锁死目标行，
+ // 官方控件重置日期时宁可报错也不会把整月重下一遍。
+ async downloadDay({shopId,date}){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||'')))throw Error('日期格式应为 YYYY-MM-DD');
+  if(this.downloadBusy)throw Error('已有导出任务进行中');
+  if(this.busy)throw Error('资金月汇总抓取正在运行');
+  if(this.host.busy||this.host.loginBusy||this.host.accountTransferBusy)throw Error('推广费查询或登录正在运行');
+  const shop=this.host.shop(shopId);
+  if(!['taobao','tmall'].includes(shop.platform||'taobao'))throw Error('资金明细仅支持淘宝/天猫账号');
+  this.downloadBusy=true;this.stopped=false;this.phaseText='正在下载明细 '+shop.name+' '+date;this.lastError='';
+  this.log('download-start',shop.name+' | 日汇总单日 | '+date+' | v'+(require('../package.json').version||''));
+  try{
+   try{return await this.downloadDayRun(shop,date);}
+   catch(error){
+    // 与 download() 同口径：导航类失败销毁窗口重开再跑一轮
+    if(this.stopped||!this.isNavFailure(error))throw error;
+    this.log('download-round2',shop.name+' 首轮失败：'+error.message);
+    this.phaseText=shop.name+' 第一轮没能下载 '+date+' 明细，关闭窗口重开新窗，开始第二轮…';
+    this.host.dropWindow(shop.id);
+    await wait(1200);this.check();
+    return await this.downloadDayRun(shop,date);
+   }
+  }catch(error){
+   this.lastError=error.message;
+   this.log('download-fail',shop.name+' | '+error.message);
+   try{
+    const dir=await this.captureFailure(shop,error,'单日明细下载失败自动采集');
+    if(dir)this.lastError=error.message+'；已自动生成诊断包：'+dir;
+   }catch(e){}
+   throw error;
+  }
+  finally{
+   this.downloadBusy=false;this.phaseText='';
+  }
+ }
+ async downloadDayRun(shop,date){
+  let win=null;
+  try{
+   win=this.host.window(shop);
+   this.armWindowOpen(win);
+   await this.authenticateGuarded(shop,win);
+   try{if(!win.isDestroyed()&&!win.isVisible())win.show();}catch(e){}
+   this.armNavTrace(win);
+   this.log('run-window',shop.name+' 窗口就绪，进入「日汇总」页（单日 '+date+'）');
+   await this.openRecordTab(win,'日汇总',shop);
+   this.log('run-opened',shop.name+' 已进入「日汇总」页');
+   await this.fillDates(win,date,date);
+   // 点完搜索等表格重载（与 download() 的 2500ms 同口径），再读行
+   await wait(2500);this.check();this.host.assertWindow(win);
+   const dir=this.exportFolder();fs.mkdirSync(dir,{recursive:true});
+   const res=await this.downloadDailyRows(win,{
+    shop,label:'日汇总',month:date.slice(0,7),dir,
+    prefix:sanitizeName(shop.name)+'_日汇总',
+    onlyDate:date.replace(/-/g,'')
+   });
+   return res;
+  }catch(error){
+   this.lastError=this.lastError||error.message;
+   throw error;
+  }finally{
+   // 与 download() 同口径：结束销毁官方窗口，不留常驻会话拖慢后续店铺
+   try{if(win&&!win.isDestroyed())win.destroy();}catch(e){}
   }
  }
  async downloadRun(shop,label,month){

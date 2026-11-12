@@ -124,6 +124,24 @@ function jdDateInput(){
  if(hit!==e){const blocker=hit?.closest?.('[role=alert],.jad-message-notice,.jad-message,.jad-notification')||hit,text=(blocker?.innerText||'').replace(/\s+/g,' ').trim();return {action:'waiting',reason:'日期筛选被遮挡，未点击'+(text&&text.length<=180?'：'+text:'')};}
  return {action:'ready',x,y};
 }
+// 京小通/站内消息气泡（jad-message 系、role=alert）可能悬浮在日期筛选正上方，导致日期框永远
+// 「被遮挡」超时失败。此处只处理通知类遮挡：优先点气泡自带关闭钮，找不到才移除该节点；
+// 非通知类的遮挡（业务弹层、跨PIN提示等）一律不碰，返回 null 交给原有重试逻辑。
+function jdDismissNotice(){
+ const visible=e=>e.getClientRects().length>0&&!e.closest('[hidden],[aria-hidden=true]')&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none'&&getComputedStyle(e).opacity!=='0';
+ const inputs=[...document.querySelectorAll('input[placeholder="请选择日期"]')].filter(visible);
+ const e=inputs[0];if(!e)return null;
+ const r=e.getBoundingClientRect(),hit=document.elementFromPoint(Math.round(r.x+r.width/2),Math.round(r.y+r.height/2));
+ if(!hit||hit===e||e.contains(hit))return null;
+ const blocker=hit.closest?.('[role=alert],.jad-message-notice,.jad-message,.jad-notification')||hit;
+ const text=(blocker.innerText||'').replace(/\s+/g,' ');
+ const isNotice=/京小通|新消息|站内信|消息通知/.test(text)||/jad-message|jad-notification/.test(String(blocker.className||''))||blocker.getAttribute?.('role')==='alert';
+ if(!isNotice)return null;
+ const close=[...blocker.querySelectorAll('[class*=close],[aria-label*=关闭]')].filter(visible)[0];
+ if(close){close.click();return 'closed';}
+ if(blocker!==document.body&&blocker.parentElement){blocker.remove();return 'removed';}
+ return null;
+}
 function jdCalendar(date){const visible=e=>{if(!e.getClientRects().length||e.closest('[hidden],[aria-hidden="true"]'))return false;if(typeof e.checkVisibility==='function')return e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});const s=getComputedStyle(e);return s.display!=='none'&&s.visibility!=='hidden'&&s.visibility!=='collapse'&&s.opacity!=='0';};const point=(e,container,action)=>{const popup=container.closest('.jad-dropdown-popper');if(popup&&(/(?:^|\s)jad-[\w-]+-(?:enter|leave)(?:-active|-to)?(?:\s|$)/.test(popup.className)||popup.getAnimations?.().some(a=>a.playState==='running'||a.pending)))return 'waiting';const r=e.getBoundingClientRect(),x=Math.round(r.x+r.width/2),y=Math.round(r.y+r.height/2),hit=document.elementFromPoint(x,y);return hit&&container.contains(hit)?{action,x,y}:'waiting';};const parts=date.split('-').map(Number),target=parts[0]*12+parts[1];const panels=[...document.querySelectorAll('.jad-date-picker-content-left,.jad-date-picker-content-right')].filter(visible);if(panels.length>2||panels.filter(p=>p.classList?.contains('jad-date-picker-content-left')).length>1||panels.filter(p=>p.classList?.contains('jad-date-picker-content-right')).length>1)throw Error('京东可见日期面板不唯一，未点击');for(const p of panels){const labels=[...p.querySelectorAll('.jad-date-picker-header-label')].map(e=>e.innerText.trim());const y=parseInt(labels[0]),m=parseInt(labels[1]);if(y*12+m===target){const cell=[...p.querySelectorAll('.jad-date-picker-cell')].find(e=>visible(e)&&!/(prev-month|next-month|disabled)/.test(e.className)&&parseInt(e.innerText)===parts[2]);if(!cell)return 'missing';return point(cell.querySelector('em')||cell,cell,'selected');}}const p=panels[0];if(!p)return 'waiting';const labels=[...p.querySelectorAll('.jad-date-picker-header-label')].map(e=>parseInt(e.innerText));const before=target<labels[0]*12+labels[1],side=before?p:panels[panels.length-1];const arrow=[...side.querySelectorAll(before?'.jad-date-picker-prev-btn-arrow':'.jad-date-picker-next-btn-arrow')].find(visible);if(!arrow)return 'missing';return point(arrow,arrow.parentElement,'moved');}
 // 只读取控件已提交的选中状态；悬停预览不能作为点击成功的证据。
 function jdDateState(){
@@ -491,7 +509,7 @@ class JdPromotionFee{
   // 仅日期筛选允许重置后重试一次；认证、授权和提交检查点不在此重试。
   for(let attempt=0;attempt<2;attempt++){
    this.host.assertWindow(win);try{await this.closeCalendar(win);}catch(error){this.host.assertWindow(win);if(attempt)throw Error(reason+'；'+error.message);throw error;}
-   let input;for(let n=0;n<60;n++){input=await this.readPage(win,'('+jdDateInput.toString()+')()');this.host.assertWindow(win);if(input?.action==='ready')break;await wait(100);}
+   let input;for(let n=0;n<60;n++){input=await this.readPage(win,'('+jdDateInput.toString()+')()');this.host.assertWindow(win);if(input?.action==='ready')break;if(input?.action==='waiting'&&/被遮挡/.test(input.reason||'')){await this.readPage(win,'('+jdDismissNotice.toString()+')()');this.host.assertWindow(win);}await wait(100);}
    if(input?.action!=='ready')throw Error(input?.reason||'日期筛选不可读，未点击');
    await this.stableClick(win,()=>this.readPage(win,'('+jdDateInput.toString()+')()'),{stage:'京东日期输入框',action:'ready'});
    if(!await this.waitDate(win,s=>s.open)){reason='京东日期面板未展开';continue;}
@@ -564,5 +582,5 @@ class JdPromotionFee{
  }
 
 }
-module.exports={JdPromotionFee,JdLedgerReceipt,jdPage,jdNavigation,jdNavTarget,jdFinanceReady,jdDateInput,jdCalendar,jdDateState,jdCalendarDismiss,jdLedger,jdAccountTrigger,jdAuthorizationPage,authorizationSummary,HOME,jdQuerySummary,jdRecordPageStatus,judgeNegativeAccount,jdWidenedSummary};
+module.exports={JdPromotionFee,JdLedgerReceipt,jdPage,jdNavigation,jdNavTarget,jdFinanceReady,jdDateInput,jdDismissNotice,jdCalendar,jdDateState,jdCalendarDismiss,jdLedger,jdAccountTrigger,jdAuthorizationPage,authorizationSummary,HOME,jdQuerySummary,jdRecordPageStatus,judgeNegativeAccount,jdWidenedSummary};
 

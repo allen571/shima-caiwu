@@ -72,7 +72,7 @@ if(!app.requestSingleInstanceLock()){
    }catch(error){trace('crash-report-failed',error.message);}
    Menu.setApplicationMenu(null);
    if(process.platform==='darwin')app.dock?.setIcon(path.join(__dirname,'../assets/app-icon.png'));
-   service=new(require('./promotion-fee.cjs').PromotionFee)({root:app.getPath('userData'),BrowserWindow,safeStorage,hidden:testMode});
+   service=new(require('./promotion-fee.cjs').PromotionFee)({root:app.getPath('userData'),BrowserWindow,safeStorage,hidden:testMode,desktop:app.getPath('desktop')});
    fund=new(require('./fund-summary.cjs').FundSummary)({host:service,root:app.getPath('userData'),dialog,downloads:app.getPath('downloads'),desktop:app.getPath('desktop'),hidden:testMode});
    // v1.2.61：每日计划（定时抓取）——应用内定时 + 托盘常驻；软件没开就抓不了，开晚了会补跑
    scheduler=new(require('./scheduler.cjs').Scheduler)({service,fund,root:app.getPath('userData')});
@@ -103,7 +103,7 @@ if(!app.requestSingleInstanceLock()){
    main.webContents.on('preload-error',(event,preloadPath,error)=>{trace('preload-error',preloadPath+' '+(error&&error.message));});
    main.webContents.setWindowOpenHandler(()=>({action:'deny'}));
    main.webContents.on('will-navigate',event=>event.preventDefault());
-   for(const action of ['state','login','setConcurrency','putShop','removeShop','removeShops','start','retry','pause','export','importAccounts','exportAccounts'])ipcMain.handle('promotion:'+action,async(event,...args)=>{
+   for(const action of ['state','login','setConcurrency','putShop','removeShop','removeShops','start','retry','pause','export','importAccounts','exportAccounts','checkLogins'])ipcMain.handle('promotion:'+action,async(event,...args)=>{
     if(event.sender!==main.webContents||event.senderFrame!==main.webContents.mainFrame)throw Error('无权访问');
     if(['importAccounts','exportAccounts'].includes(action))return require('./promotion-fee-accounts.cjs').transferAccounts({service,action,dialog,parent:main,downloads:app.getPath('downloads')});
     if(action==='export')return require('./promotion-fee-export.cjs').exportPromotionFees({service,dialog,parent:main,downloads:app.getPath('downloads')});
@@ -150,6 +150,14 @@ if(!app.requestSingleInstanceLock()){
     const options={version:app.getVersion(),resourcesPath:process.resourcesPath,appPath:app.getAppPath()};
     if(action==='sourceInfo')return source.sourceInfo(options);
     return source.exportSource({...options,dialog,parent:main,desktop:app.getPath('desktop'),shell});
+   });
+   // v1.2.83：内置「财务工作台」（FinanceHub，本机 8765 端口的数据服务），界面按钮一键启动
+   for(const action of ['workbenchStatus','workbenchLaunch'])ipcMain.handle('app:'+action,async event=>{
+    if(event.sender!==main.webContents||event.senderFrame!==main.webContents.mainFrame)throw Error('无权访问');
+    const launcher=require('./workbench-launcher.cjs');
+    const options={resourcesPath:process.resourcesPath,appPath:app.getAppPath(),userData:app.getPath('userData')};
+    if(action==='workbenchStatus')return launcher.status(options);
+    return launcher.launch(options);
    });
    ipcMain.handle('fund:openExportFolder',async event=>{
     if(event.sender!==main.webContents||event.senderFrame!==main.webContents.mainFrame)throw Error('无权访问');

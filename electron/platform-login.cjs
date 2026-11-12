@@ -143,7 +143,7 @@ class PlatformLogin{
   win=new this.BrowserWindow({parent:this.getWindow()||undefined,title:p.name+(platform==='qianniu'?'店铺登录':'买家登录')+(this.identityLabel(platform)?' · '+this.identityLabel(platform):''),show:false,width:1180,height:800,webPreferences:{partition:p.partition,backgroundThrottling:false,contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
   this.windows.set(platform,win);win.setMenuBarVisibility(false);
   win.webContents.on('page-title-updated',event=>event.preventDefault());
-  const wc=win.webContents;this.observe(platform,wc);wc.session.setUserAgent(wc.session.getUserAgent().replace(/[^\x20-\x7e]+/g,'ShimaWorkbench'));wc.setUserAgent(wc.session.getUserAgent());
+  const wc=win.webContents;this.observe(platform,wc);wc.session.setUserAgent(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`);wc.setUserAgent(wc.session.getUserAgent());
   wc.setWindowOpenHandler(({url})=>{if(allowed(url,platform))void wc.loadURL(url).catch(()=>{});return {action:'deny'};});
   for(const event of ['will-navigate','will-redirect'])wc.on(event,(e,url)=>{if(!allowed(url,platform))e.preventDefault();});
   win.on('closed',()=>{this.windows.delete(platform);});return win;

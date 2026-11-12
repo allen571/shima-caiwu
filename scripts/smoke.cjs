@@ -255,6 +255,18 @@ exports.run=async({app,main,service,dialog})=>{
   }else{
    report.checks.push('未生成 source-snapshot.zip，本次跳过内置源码导出验收');
   }
+  // v1.2.83：内置工作台入口——按钮渲染 + 可用性探测（不在这里真拉起第三方程序，启动/等待逻辑由单元测试覆盖）
+  const workbenchExe=path.join(__dirname,'..','assets','workbench','FinanceHub-Workbench.exe');
+  assert.ok(await js(`!!document.querySelector('#finance-workbench')`),'缺少「打开工作台」按钮');
+  if(fs.existsSync(workbenchExe)){
+   await until(()=>js(`document.querySelector('#finance-workbench').textContent!=='无内置工作台'`));
+   const workbenchLabel=await js(`document.querySelector('#finance-workbench').textContent`);
+   const workbenchTitle=await js(`document.querySelector('#finance-workbench').title`);
+   assert.ok(/工作台/.test(workbenchTitle),'按钮提示应说明工作台用途：'+workbenchTitle);
+   report.checks.push('真实「打开工作台」按钮：内置工作台被识别（显示「'+workbenchLabel+'」），未在测试中拉起第三方进程');
+  }else{
+   report.checks.push('工程内没有 assets/workbench 程序，跳过内置工作台入口验收');
+  }
   report.success=true;
  }catch(error){report.error=error.stack;throw error;}finally{fs.writeFileSync(path.join(out,'smoke-'+phase+'.json'),JSON.stringify(report,null,2));}
 };

@@ -53,3 +53,10 @@
 .fs-table td small.fs-src{display:inline-block;margin-left:6px;color:#8a6a3c;background:#f6ead8;border-radius:4px;padding:0 5px;font-size:11px;max-width:none}
 /* 抓取备注标记（如「官方显示没有数据」的说明）：悬停看全文 */
 .fs-table td small.fs-note{display:inline-block;margin-left:6px;color:#5b6b8c;background:#e8edf6;border-radius:4px;padding:0 5px;font-size:11px;cursor:help}
+
+/* v1.2.85：上一轮结果行（重抓未成功时回显的历史已获取行）淡色区分 */
+.fs-table tr.is-carried td{background:#f7f9fc}
+
+/* v1.2.87：资金结果表「显示历史记录」开关与历史行灰显 */
+.fs-show-all{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#5a6472;white-space:nowrap}.fs-show-all input{margin:0}
+.fs-table tr.is-history td{color:#98a1ac}

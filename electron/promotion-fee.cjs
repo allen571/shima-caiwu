@@ -7,7 +7,32 @@ const ACCOUNT='https://one.alimama.com/index.html#!/account/detail';
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 // v1.2.81（2026-11-10 财务反馈）：批量抓取遇到滑块/协议/密码错时不再原地等 15 分钟。
 // 这个错误码表示「该店只能人工处理」，批量流程立即跳过它继续跑后面的店，跑完由 UI 集中处理。
-function manualError(message,reason){const error=Error(message);error.code='NEEDS_MANUAL';error.reason=reason||'manual';return error;}
+// v1.2.87：结果表默认只显示「今天/昨天」的记录。此前每店历史最新一行（含 10-27 的失败、几周前的「已暂停」）
+// 全部堆在表里，财务看到一整片失败以为刚跑的批次全挂了（2026-11-11 反馈实锤：今天 10 家全成功，
+// 表里 16 行红/灰全是 10-27、11-04 的旧记录）。判定：updatedAt 换算北京时间是否在昨今两天内；
+// 老记录没有 updatedAt 时退回查询日期 end/day。历史行不删、随 state().stale 返回给「显示历史记录」开关。
+const BJS_OFFSET=8*3600000;
+function rowRecent(row,now){
+ const t=now||Date.now(),yesterday=new Date(t+BJS_OFFSET-86400000).toISOString().slice(0,10);
+ if(row.updatedAt){const parsed=Date.parse(row.updatedAt);if(Number.isFinite(parsed)){const day=new Date(parsed+BJS_OFFSET).toISOString().slice(0,10);if(day>=yesterday)return true;}}
+ const settled=row.end||row.day||'';
+ // 完全没有时间信息（老版本写入的行）不做判断，保留显示——宁可多显示也不要误藏当前数据
+ if(!row.updatedAt&&!settled)return true;
+ return !!settled&&settled>=yesterday;
+}
+function manualError(message,reason){
+ const error=Error(message);error.code='NEEDS_MANUAL';error.reason=reason||'manual';return error;}
+// 诊断包目录名清洗（与资金侧 fund-summary 同规则）。
+function sanitizeName(name){return String(name||'').replace(/[\\/:*?"<>|\s]+/g,'-').slice(0,60)||'店铺';}
+// 登录页只读快照（在页面内执行）：只回布尔、计数与文本片段，绝不回传输入框的值——
+// 账号/密码永远不出页面，诊断包里能看到的只有「框里有没有值」。
+function loginDiagnose(){
+ const visible=e=>!!e&&e.getClientRects().length>0&&!e.closest('[hidden],[aria-hidden="true"]')&&(e.checkVisibility?e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}):getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none');
+ const inputs=[...document.querySelectorAll('input')].filter(e=>visible(e)&&!e.disabled&&!e.readOnly);
+ return {url:location.href,title:document.title||'',body:(document.body?.innerText||'').replace(/\s+/g,' ').slice(0,2000),inputs:inputs.length,passwords:inputs.filter(e=>e.type==='password').length,passwordFilled:inputs.some(e=>e.type==='password'&&!!e.value),usernameFilled:inputs.some(e=>e.type!=='password'&&['text','email','tel'].includes(e.type)&&!!e.value),disabledPassword:inputs.some(e=>e.type==='password'&&(e.disabled||e.readOnly)),iframes:[...document.querySelectorAll('iframe,frame')].filter(visible).map(e=>e.src||'').slice(0,10)};
+}
+// DOM 结构快照（页面内执行）：登录页骨架用，配合截图定位「白板/控件没渲染」。
+function loginDump(){return {url:location.href,html:document.documentElement.outerHTML.slice(0,200000)};}
 // 登录表单探测：只回布尔（绝不回传输入值），用于判断「能不能自动补填/补提交」。
 // usernameMatches 在页面内比较，只把结果带出来——这样既能区分「淘宝记住的是本店账号」和
 // 「框里是别人的账号」，又不会把值带离页面。
@@ -16,10 +41,18 @@ const PLATFORM_NAMES={taobao:'淘宝',tmall:'天猫',douyin:'抖音',jd:'京东'
 function trusted(url,platform='taobao'){try{const u=new URL(url);return u.protocol==='https:'&&!u.username&&!u.password&&(platform==='jd'?['jd.com']:['taobao.com','tmall.com','alimama.com']).some(d=>u.hostname===d||u.hostname.endsWith('.'+d));}catch{return false;}}
 function dateBounds(now=Date.now()){const today=new Date(now+28800000).toISOString().slice(0,10),[y,m,d]=today.split('-').map(Number),target=new Date(Date.UTC(y,m-4,1)),last=new Date(Date.UTC(target.getUTCFullYear(),target.getUTCMonth()+1,0)).getUTCDate();target.setUTCDate(Math.min(d,last));return {today,earliest:target.toISOString().slice(0,10)};}
 function shiftDate(date,days){const t=Date.parse(date+'T00:00:00+08:00');if(!Number.isFinite(t)||new Date(t+28800000).toISOString().slice(0,10)!==date)throw Error('日期格式无效：'+date);return new Date(t+days*86400000+28800000).toISOString().slice(0,10);}
+// 北京时间的“今天”（YYYY-MM-DD）：京东记账日期钳制上界用，不能依赖本机时区（本机会有 UTC 机器）
+const bjToday=()=>new Date(Date.now()+28800000).toISOString().slice(0,10);
 function range(input){const valid=s=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(s||''))return false;const t=Date.parse(s+'T00:00:00+08:00');return Number.isFinite(t)&&new Date(t+28800000).toISOString().slice(0,10)===s;};if(!valid(input?.start)||!valid(input?.end)||input.end<input.start)throw Error('请填写有效的开始、结束日期');const {today,earliest}=dateBounds();if(input.start<earliest)throw Error('仅支持最近3个月内的日期，最早可选'+earliest);if(input.end>today)throw Error('结束日期不能晚于今天');return {start:input.start,end:input.end};}
 function displayedRange(values,now=Date.now()){
  const today=new Date(now+28800000).toISOString().slice(0,10),date=t=>new Date(t+28800000).toISOString().slice(0,10),mid=Date.parse(today+'T00:00:00+08:00');
- for(const raw of values||[]){const v=String(raw).replace(/\s+/g,' ').trim().replace(/今日|今天/g,today).replace(/昨日|昨天/g,date(mid-86400000)),pair=v.match(/^(\d{4}-\d{2}-\d{2})\s*[~～至—–-]\s*(\d{4}-\d{2}-\d{2})$/);if(pair)return {start:pair[1],end:pair[2]};if(v===today)return {start:today,end:today};if(v===date(mid-86400000))return {start:date(mid-86400000),end:date(mid-86400000)};if(v==='本月')return {start:today.slice(0,8)+'01',end:today};if(v==='上月'){const previous=date(Date.parse(today.slice(0,8)+'01T00:00:00+08:00')-86400000);return {start:previous.slice(0,8)+'01',end:previous};}const recent=v.match(/^最近?\s*(7|15|30|90|180)\s*天$/);if(recent)return {start:date(mid-(Number(recent[1])-1)*86400000),end:today};}return null;
+ for(const raw of values||[]){const v=String(raw).replace(/\s+/g,' ').trim().replace(/今日|今天/g,today).replace(/昨日|昨天/g,date(mid-86400000)),pair=v.match(/^(\d{4}-\d{2}-\d{2})\s*[~～至—–-]\s*(\d{4}-\d{2}-\d{2})$/);if(pair)return {start:pair[1],end:pair[2]};if(v===today)return {start:today,end:today};if(v===date(mid-86400000))return {start:date(mid-86400000),end:date(mid-86400000)};if(v==='本月')return {start:today.slice(0,8)+'01',end:today};if(v==='上月'){const previous=date(Date.parse(today.slice(0,8)+'01T00:00:00+08:00')-86400000);return {start:previous.slice(0,8)+'01',end:previous};}const recent=v.match(/^最近?\s*(7|15|30|90|180)\s*天$/);if(recent)return {start:date(mid-(Number(recent[1])-1)*86400000),end:today};}
+ // v1.2.94：万相台起止日期常是两个独立输入框（如 11-01 单日显示为 "2026-11-01","2026-11-01"），
+ // 旧解析只认 "X ~ Y" 合并串和今/昨特例 → 历史日期查询全部误判。取第一对相邻 ISO 日期作起止；
+ // 必须成对才确认（单个不认，宁可失败不误判），页面真实显示优先，不引入任何猜测。
+ const vs=(values||[]).map(x=>String(x).replace(/\s+/g,' ').trim());
+ for(let i=0;i+1<vs.length;i++)if(/^\d{4}-\d{2}-\d{2}$/.test(vs[i])&&/^\d{4}-\d{2}-\d{2}$/.test(vs[i+1]))return {start:vs[i],end:vs[i+1]};
+ return null;
 }
 function cents(value){const s=String(value).replace(/[¥￥,\s]/g,'');if(!/^\d+(?:\.\d{1,2})?$/.test(s))throw Error('推广费金额不可读');const [a,b='']=s.split('.'),n=Number(a)*100+Number(b.padEnd(2,'0'));if(!Number.isSafeInteger(n))throw Error('推广费金额超出可用范围');return n;}
 // Read only rendered cash-ledger controls and totals. No network response or hidden application state.
@@ -44,9 +77,10 @@ function inspect(){
  return {url:u.origin+u.pathname+u.hash,start:q.get('cashStart'),end:q.get('cashEnd'),trade:q.get('trade'),amount,loading,content:content.slice(0,1400),controls,accountLabels:[...document.querySelectorAll('a,span,div')].filter(e=>visible(e)&&!scope.contains(e)&&text(e).length<150).map(text).filter(Boolean),identityLabels:[...document.querySelectorAll('[class*=shopName],[class*=shop-name],[class*=nickName],[class*=nick-name],[data-shop-name]')].filter(visible).map(text).filter(Boolean),dateType:controls.some(v=>v==='交易日期')?'交易日期':null};
 }
 class PromotionFee{
- constructor({root,BrowserWindow,safeStorage,hidden=false,adapter=null,singleShop=false,backgroundOnly=false}){Object.assign(this,{root,BrowserWindow,safeStorage,hidden,adapter,singleShop,backgroundOnly});this.queryContext=new AsyncLocalStorage();this.activeQueries=new Map();this.file=path.join(root,'promotion-fee.json');this.logFile=path.join(root,'promotion-fee.log');this.manualWaitMs=300000;this.interactive=false;this.windows=new Map();this.authAttempts=new Set();this.busy=false;this.stopped=false;this.writeFailure=false;this.data={version:1,shops:[],results:[]};try{this.data=JSON.parse(fs.readFileSync(this.file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw Error('推广费记录无法读取，未覆盖原文件');}if(this.data.loginAttempts!==undefined&&(!this.data.loginAttempts||typeof this.data.loginAttempts!=='object'||Array.isArray(this.data.loginAttempts)))throw Error('登录尝试检查点无法读取，未覆盖原记录');
+ constructor({root,BrowserWindow,safeStorage,hidden=false,adapter=null,singleShop=false,backgroundOnly=false,desktop=null}){Object.assign(this,{root,BrowserWindow,safeStorage,hidden,adapter,singleShop,backgroundOnly,desktop});this.queryContext=new AsyncLocalStorage();this.activeQueries=new Map();this.file=path.join(root,'promotion-fee.json');this.logFile=path.join(root,'promotion-fee.log');this.manualWaitMs=300000;this.interactive=false;this.windows=new Map();this.authAttempts=new Set();this.busy=false;this.stopped=false;this.writeFailure=false;this.loginCaptures=0;this.loginCapturedShops=new Set();this.data={version:1,shops:[],results:[]};try{this.data=JSON.parse(fs.readFileSync(this.file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw Error('推广费记录无法读取，未覆盖原文件');}if(this.data.loginAttempts!==undefined&&(!this.data.loginAttempts||typeof this.data.loginAttempts!=='object'||Array.isArray(this.data.loginAttempts)))throw Error('登录尝试检查点无法读取，未覆盖原记录');
 // v1.2.81：并行账号数默认 4→8（用户 2026-11-10 确认：160+ 店铺，4 路要跑两小时以上）。
 // 只做一次性迁移，且不覆盖用户手动调低的值（≥6 视为主动设置）。
+this.checkBusy=false;this.data.loginChecks=this.data.loginChecks||{};
 if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if(!Number.isInteger(legacy)||legacy<6){this.data.concurrency=8;this.concurrencyMigratedNow=true;}this.data.concurrencyMigrated=true;}const sessionKey=s=>/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(s||'');const counts=new Map();for(const shop of this.data.shops)if(sessionKey(shop.sessionKey))counts.set(shop.sessionKey.toLowerCase(),(counts.get(shop.sessionKey.toLowerCase())||0)+1);let isolationChanged=false;this.data.shops=this.data.shops.map(s=>{let key=s.sessionKey;if(!sessionKey(key)||(counts.get(String(key).toLowerCase())||0)>1){key=randomUUID();isolationChanged=true;}return {...s,sessionKey:key,platform:s.platform||'taobao'};});this.data.results=this.data.results.map(r=>['running','queued'].includes(r.status)?{...r,status:'paused',error:'上次查询已中断，未自动重新查询',amountCents:null}:r);if(isolationChanged||this.concurrencyMigratedNow)this.save(this.data);}
  // v1.2.81：推广费抓取一直没有日志，160 家店出问题只能靠猜（资金侧有 fund.log）。
  // 这里补一份轻量轨迹：登录填充结果、需人工原因、单店耗时、失败原因。512KB 自动轮转。
@@ -58,15 +92,51 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
  setConcurrency(value){if(this.busy||this.loginBusy)throw Error('查询或登录期间不能修改并行账号数');if(!Number.isInteger(value)||value<1||value>20)throw Error('并行账号数必须为1至20的整数');this.save({...this.data,concurrency:value});return this.state();}
  get phase(){return this.activeQueries.size?[...this.activeQueries.values()].map(v=>v.phase).filter(Boolean).join('；'):this.idlePhase||'';}
  set phase(value){const id=this.queryContext.getStore(),active=this.activeQueries.get(id);if(active)active.phase=value;else this.idlePhase=value;}
- state(){const rows=this.data.results.filter(r=>r.runId===this.data.results.at(-1)?.runId).map(r=>this.writeFailure&&['running','queued'].includes(r.status)?{...r,status:'paused',error:this.lastError,amountCents:null}:r);const manual=rows.filter(r=>r.status==='manual');return {shops:this.data.shops.map(({secret,...s})=>({...s,hasPassword:!!secret,loginStatus:this.loginShopId===s.id?'登录中':s.loginNeedsAttention?'需确认登录':s.loginConfirmedAt?'已保存登录':'未确认登录'})),results:rows,concurrency:this.concurrency,activeCount:this.activeQueries.size,busy:this.busy,loginBusy:!!this.loginBusy,error:this.lastError||'',phase:this.phase||'',current:this.current||null,manual:{count:manual.length,shops:manual.map(r=>({shopId:r.shopId,shopName:r.shopName,reason:r.manualReason||r.error||''}))}};}
- save(data){if(this.writeFailure)throw Error('本机保存失败，已停止后续查询');try{fs.mkdirSync(this.root,{recursive:true});fs.writeFileSync(this.file+'.tmp',JSON.stringify(data),{mode:0o600});fs.renameSync(this.file+'.tmp',this.file);this.data=data;}catch{this.writeFailure=true;this.lastError='推广费记录保存失败，已停止后续查询';throw Error(this.lastError);}}
+ state(){
+  // v1.2.85 显示合并（2026-11-11 财务反馈「重抓后第一轮的数据看不到」）：重抓（计划二轮/手动补查）
+  // 会创建新 runId，旧实现只显示最新一轮的行，第一轮已获取的店铺就从界面和 CSV 导出里消失。
+  // 改为：每店显示最新一行；若最新一行是失败/需人工/已暂停，且该店历史上最近一次已获取（completed），
+  // 把那条一并显示（carriedOver 标注「上一轮结果」），金额继续计入合计。落盘数据不改动。
+  const all=this.data.results;
+  const last=all.at(-1)?.runId;
+  // 兼容旧记录/测试：无 shopId 的行按旧口径（最新 runId）保留；有 shopId 的行每店取最后一行，
+  // 输出顺序 = 该店首次出现顺序（Map 按首次 set 的位置迭代）
+  const noShopLast=all.filter(r=>!r.shopId&&r.runId===last);
+  const lastIdx=new Map();
+  for(let i=0;i<all.length;i++){const r=all[i];if(!r.shopId)continue;lastIdx.set(r.shopId,i);}
+  const latest=[...lastIdx.values()].map(i=>all[i]);
+  const now=Date.now(),carried=[];const carriedSeen=new Set();
+  for(const r of latest){
+   // 只有「最新一行本身是近期（今昨两天）」时才回显上一轮成功，避免历史失败行带出一条孤立的旧成功行
+   if(!r.shopId||!['failed','manual','paused'].includes(r.status)||!rowRecent(r,now))continue;
+   for(let i=all.length-1;i>=0;i--){const o=all[i];if(o.shopId===r.shopId&&o.status==='completed'&&!carriedSeen.has(r.shopId)){carriedSeen.add(r.shopId);carried.push({...o,carriedOver:true});break;}}
+  }
+  const rows=[...carried,...noShopLast,...latest].map(r=>this.writeFailure&&['running','queued'].includes(r.status)?{...r,status:'paused',error:this.lastError,amountCents:null}:r);
+  // v1.2.87：近期行进表，历史行单独放 stale（默认不显示，供 UI「显示历史记录」开关）
+  // v1.2.87：近期行进表，历史行单独放 stale（默认不显示，供 UI「显示历史记录」开关）。
+  // 最新一轮的行一律保留（用户可能故意查很早的自定义区间），其余按今昨两天判定。
+  const keep=r=>r.carriedOver||(!!last&&r.runId===last)||rowRecent(r,now);
+  const recent=rows.filter(keep),stale=rows.filter(r=>!keep(r));
+  const manual=recent.filter(r=>r.status==='manual');const loginChecks=this.data.loginChecks||{};return {shops:this.data.shops.map(({secret,...s})=>({...s,hasPassword:!!secret,loginStatus:this.loginShopId===s.id?'登录中':s.loginNeedsAttention?'需确认登录':s.loginConfirmedAt?'已保存登录':'未确认登录',checkStatus:(loginChecks[s.id]&&loginChecks[s.id].status)||'',checkAt:(loginChecks[s.id]&&loginChecks[s.id].at)||''})),results:recent,stale,concurrency:this.concurrency,activeCount:this.activeQueries.size,busy:this.busy,checkBusy:!!this.checkBusy,loginBusy:!!this.loginBusy,error:this.lastError||'',phase:this.phase||'',current:this.current||null,manual:{count:manual.length,shops:manual.map(r=>({shopId:r.shopId,shopName:r.shopName,reason:r.manualReason||r.error||''}))}};}
+ save(data){
+  const write=()=>{fs.mkdirSync(this.root,{recursive:true});fs.writeFileSync(this.file+'.tmp',JSON.stringify(data),{mode:0o600});fs.renameSync(this.file+'.tmp',this.file);this.data=data;};
+  const fail=e=>{this.writeFailure=true;this.lastError='推广费记录保存失败，已停止后续查询';this.log('save-fail','熔断：'+(e&&e.code||'')+' '+(e&&e.message||e));throw Error('本机保存失败，已停止后续查询（推广费记录保存失败：'+(e&&e.message||e)+'，原因已记入 promotion-fee.log）');};
+  if(this.writeFailure){try{write();this.writeFailure=false;this.lastError='';this.log('save-recovered','记录保存已恢复，解除熔断');}catch(e){fail(e);}return;}
+  for(let attempt=1;attempt<=3;attempt++){
+   try{write();return;}catch(e){
+    this.log('save-retry','第 '+attempt+'/3 次保存失败 '+(e&&e.code||'')+' '+(e&&e.message||e));
+    if(attempt===3)fail(e);
+    const until=Date.now()+300;while(Date.now()<until)Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,50);
+   }
+  }
+ }
  shop(id){const s=this.data.shops.find(s=>s.id===id);if(!s)throw Error('店铺不存在');return s;}
  putShop(input){if(this.singleShop&&!input.id&&this.data.shops.length)throw Error('当前为独立店铺环境；其他店铺请在顶部新建环境，不能共用登录');if(this.busy||this.loginBusy)throw Error('查询或登录期间不能修改账号');const old=input.id?this.shop(input.id):null;const name=String(input.name||old?.name||input.username||'').trim(),username=String(input.username||'').trim(),password=String(input.password||'');if(!name||!username||name.length>120||username.length>120)throw Error('请填写有效登录账号');if(!old?.secret&&!password)throw Error('请填写密码');let secret=old?.secret;if(password){if(!this.safeStorage?.isEncryptionAvailable())throw Error('系统密码加密不可用，未保存密码');secret=this.safeStorage.encryptString(password).toString('base64');}const platform=input.platform||old?.platform||'taobao';if(!Object.hasOwn(PLATFORM_NAMES,platform))throw Error('平台选项无效');const changed=!!old&&(username!==old.username||password.length>0||platform!==old.platform);const shop={loginNeedsAttention:changed?false:!!old?.loginNeedsAttention,loginConfirmedAt:changed?null:old?.loginConfirmedAt||null,id:old?.id||randomUUID(),platform,name:changed?username:name,username,secret,sessionKey:changed?randomUUID():old?.sessionKey||randomUUID(),boundShop:changed?null:old?.boundShop||null,boundAccountId:changed?null:old?.boundAccountId||null,jdLoginAccountId:changed?null:old?.jdLoginAccountId||null};const shops=this.data.shops.filter(s=>s.id!==shop.id).concat(shop);this.save({...this.data,shops,results:changed?this.data.results.map(r=>r.shopId===shop.id&&r.status!=='completed'?{...r,accountChanged:true,error:'账号配置已变更，请重新获取推广费'}:r):this.data.results});if(changed){const oldWindow=this.windows.get(shop.id);if(oldWindow&&!oldWindow.isDestroyed())oldWindow.destroy();this.windows.delete(shop.id);}return this.state();}
  removeShop(id){if(this.busy||this.loginBusy)throw Error('查询或登录期间不能删除账号');const shop=this.shop(id);this.save({...this.data,shops:this.data.shops.filter(s=>s.id!==id)});this.authAttempts.delete(shop.sessionKey);const win=this.windows.get(id);if(win&&!win.isDestroyed())win.destroy();this.windows.delete(id);return this.state();}
  // 批量删除所选账号：与单删同语义（保留历史结果），一次落库、统一清理会话检查点与窗口；不存在的 id 直接忽略
  removeShops(ids){if(this.busy||this.loginBusy)throw Error('查询或登录期间不能删除账号');const set=new Set(Array.isArray(ids)?ids:[]);const removing=this.data.shops.filter(s=>set.has(s.id));if(!removing.length)return this.state();this.save({...this.data,shops:this.data.shops.filter(s=>!set.has(s.id))});for(const s of removing){this.authAttempts.delete(s.sessionKey);const win=this.windows.get(s.id);if(win&&!win.isDestroyed())win.destroy();this.windows.delete(s.id);}return this.state();}
  check(){if(this.stopped)throw Error('查询已暂停');if(this.writeFailure)throw Error('本机保存失败，已停止后续查询');}
- window(shop){let win=this.windows.get(shop.id);if(win&&!win.isDestroyed())return win;win=new this.BrowserWindow({show:false,width:1280,height:850,title:PLATFORM_NAMES[shop.platform]+'推广费 · '+shop.name,webPreferences:{partition:'persist:promotion-fee:'+shop.sessionKey,nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});win.webContents.session.setUserAgent(win.webContents.session.getUserAgent().replace(/[^\x20-\x7e]+/g,'ShimaWorkbench'));win.webContents.setUserAgent(win.webContents.session.getUserAgent());for(const evt of ['will-navigate','will-redirect'])win.webContents.on(evt,(e,url)=>{if(!trusted(url,shop.platform))e.preventDefault();});win.webContents.setWindowOpenHandler(({url})=>{if(trusted(url,shop.platform)&&!win.isDestroyed())void this.load(win,url).catch(()=>{});return {action:'deny'};});win.on('closed',()=>{if(this.windows.get(shop.id)===win)this.windows.delete(shop.id);});win.promotionPlatform=shop.platform;this.windows.set(shop.id,win);return win;}
+ window(shop){let win=this.windows.get(shop.id);if(win&&!win.isDestroyed())return win;win=new this.BrowserWindow({show:false,width:1280,height:850,title:PLATFORM_NAMES[shop.platform]+'推广费 · '+shop.name,webPreferences:{partition:'persist:promotion-fee:'+shop.sessionKey,nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});win.webContents.session.setUserAgent(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`);win.webContents.setUserAgent(win.webContents.session.getUserAgent());for(const evt of ['will-navigate','will-redirect'])win.webContents.on(evt,(e,url)=>{if(!trusted(url,shop.platform))e.preventDefault();});win.webContents.setWindowOpenHandler(({url})=>{if(trusted(url,shop.platform)&&!win.isDestroyed())void this.load(win,url).catch(()=>{});return {action:'deny'};});win.on('closed',()=>{if(this.windows.get(shop.id)===win)this.windows.delete(shop.id);});win.promotionPlatform=shop.platform;this.windows.set(shop.id,win);return win;}
  // v1.2.81：逐字输入必须窗口有焦点。原实现全程 show:false → 原生输入静默失败 → 直接转人工弹窗，
  // 用户看到的现象就是「弹窗了但账号密码是空的」。需要填表的店铺先亮一下窗口拿到焦点。
  async focusForInput(win){
@@ -192,6 +262,8 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   // 滑块/协议都会在这里原地等 15 分钟，并发 4 时 4 家一卡，后面 150 多家全排队。
   // 批量抓取（run/start）一律立刻抛出「需人工」，跳过该店继续跑；只有用户主动点「登录」才等待。
   if(!this.interactive){
+   // v1.2.84：跳过前先把现场采下来（滑块长什么样、页面是否白板），再收回窗口。
+   try{await this.captureLoginFailure(shop,win,(ledger?'台账页需人工验证':'登录需人工验证')+(message?'：'+message:''),'需人工验证自动跳过');}catch(error){}
    // 批量跳过时把刚为填表亮起的窗口收回去，避免 160 家店在桌面上堆窗口
    try{if(!win.isDestroyed()&&win.isVisible())win.hide();}catch(error){}
    throw manualError('该店需要人工验证'+(message?'：'+message:''),ledger?'verification':'manual');
@@ -263,6 +335,9 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
     this.log('login-fill-start',shop.name);
     const filled=await this.submitLogin(win,credentials=>this.authState(win,credentials),{username:shop.username,password});
     this.log('login-fill-result',shop.name+' '+filled.status);
+    // v1.2.84：填入没有走完（manual/verification/unknown/switched/form/logged_out/rejected）
+    // 就自动落登录诊断包——财务报「账号密码没写入/白板」时直接发包即可定位。
+    if(!['submitted','prepared','filled'].includes(filled.status))await this.captureLoginFailure(shop,win,'填入结果 '+filled.status,'登录自动填入未完成').catch(()=>{});
     // 仅明确尚未提交的切换/表单结果可撤销本次预备检查点。
     if(['switched','logged_out','form'].includes(filled.status))this.finishLoginAttempt(shop);
     if(['verification','agreement','manual'].includes(filled.status)){const done=await this.attention(shop,win,'请在千牛窗口完成登录');return done.shopName;}
@@ -297,8 +372,39 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   // 仅持久提交成功后清内存，避免身份错配、取消或保存失败被当成成功。
   this.authAttempts.delete(shop.sessionKey);this.jdAdapter?.attempted?.delete(shop.sessionKey);
  }
+ // —— 登录现场自动采集（v1.2.84）：自动填入没提交、或批量遇滑块被跳过时落盘诊断包——
+ // 用户零额外操作，把桌面「诗玛登录诊断_店铺名_时间」文件夹发回即可定位「账号密码没写入/白板」。
+ // 只做只读采集（页面快照 + 输入框布尔状态 + DOM + 截图），不导航、不等待；输入框的值绝不出页面。
+ // 上限与资金侧一致：一轮最多 5 个包、每家店只采一次，160 家店不会刷屏。
+ async captureLoginFailure(shop,win,detail,trigger){
+  if(this.loginCaptures>=5||this.loginCapturedShops.has(shop.id))return '';
+  try{this.assertWindow(win);}catch(e){return '';}
+  const dir=path.join(this.desktop||this.root,'诗玛登录诊断_'+sanitizeName(shop.name)+'_'+new Date(Date.now()+28800000).toISOString().replace(/[:.]/g,'-').slice(0,19));
+  try{fs.mkdirSync(dir,{recursive:true});}catch(e){return '';}
+  const report={generatedAt:new Date().toISOString(),app:'诗玛财务AI工作台',trigger:trigger||'登录自动填入未完成',
+   shop:{id:shop.id,name:shop.name,platform:shop.platform||'taobao',username:shop.username},
+   detail:String(detail||'').slice(0,400),frames:[]};
+  let idx=0;
+  try{
+   for(const frame of (win.webContents.mainFrame?.framesInSubtree||[win.webContents])){
+    idx++;
+    let url='';try{url=frame.url||'';}catch(e){}
+    const st=await this.readPage(win,'('+loginDiagnose.toString()+')()',frame).catch(()=>null);
+    if(st)report.frames.push({frame:idx,url,state:st});
+    const dump=await this.readPage(win,'('+loginDump.toString()+')()',frame).catch(()=>null);
+    if(dump&&dump.html){try{fs.writeFileSync(path.join(dir,'frame-'+idx+'.html'),'<!-- '+dump.url+' -->\n'+dump.html);}catch(e){}}
+   }
+  }catch(e){report.framesError=e.message;}
+  try{fs.writeFileSync(path.join(dir,'诊断.json'),JSON.stringify(report,null,2));}catch(e){return '';}
+  try{
+   if(!win.isDestroyed()&&win.isVisible()){const img=await win.webContents.capturePage();if(img&&!img.isEmpty())fs.writeFileSync(path.join(dir,'页面截图.png'),img.toPNG());}
+  }catch(e){}
+  this.loginCaptures++;this.loginCapturedShops.add(shop.id);
+  this.log('login-diag',shop.name+' → '+dir);
+  return dir;
+ }
  async login(id){
-  if(this.busy||this.loginBusy||this.accountTransferBusy)throw Error('查询、登录或账号导入导出正在运行');
+  if(this.busy||this.loginBusy||this.accountTransferBusy||this.checkBusy)throw Error('查询、登录、账号操作或登录验证正在运行');
   if(this.writeFailure)throw Error('本机保存失败，已停止后续操作');
   const shop=this.shop(id);if(shop.platform==='douyin')throw Error('抖音登录尚未接入');
   this.loginBusy=true;this.loginShopId=id;this.stopped=false;this.lastError='';this.phase='正在登录 '+shop.name;
@@ -312,20 +418,73 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   finally{this.interactive=false;this.loginBusy=false;this.loginShopId=null;}})();
   return this.state();
  }
+ // v1.2.88 一键验证登录状态（2026-11-11 财务反馈「弹窗滑块太多，想先知道谁还登着」）：
+ // 用已保存会话打开官方首页做只读探测——绝不填密码、不点登录、不弹验证窗，不产生新的
+ // 密码登录记录，因此不会触发风控滑块。结果存 loginChecks 供界面标注；过期/待验证的
+ // 店由前端自动勾选，交给「一键登录所选」接力处理。
+ async checkLogins(input){
+  if(this.busy||this.loginBusy||this.accountTransferBusy||this.checkBusy)throw Error('查询、登录或账号操作正在运行，稍后再验证');
+  this.check();
+  const ids=[...new Set(Array.isArray(input?.shopIds)?input.shopIds:[])].filter(id=>this.data.shops.some(s=>s.id===id));
+  const shops=ids.length?ids.map(id=>this.shop(id)):this.data.shops.filter(s=>s.platform!=='douyin');
+  if(!shops.length)throw Error('请先添加店铺账号');
+  const startedAt=Date.now();this.checkBusy=true;this.lastError='';
+  // 探测到的原始状态 → 展示口径：ok=会话有效；expired=会话已过期；verification=待人工验证；
+  // rejected=登录异常；unknown=15 秒内没读出确定状态（页面加载慢/结构变化），不算失败也不瞎猜。
+  const KIND={logged_in:'ok',verification:'verification',agreement:'verification',form:'expired',logged_out:'expired',rejected:'rejected',blocked:'rejected'};
+  try{
+   const checks={};let next=0;
+   const probe=async shop=>{
+    let win=this.windows.get(shop.id),created=!win||win.isDestroyed();
+    try{
+     if(created)win=this.window(shop);
+     this.log('login-check-start',shop.name);
+     await this.load(win,shop.platform==='jd'?require('./promotion-fee-jd.cjs').HOME:HOME);
+     const deadline=Date.now()+(this.loginCheckTimeoutMs||15000);let raw='unknown';
+     while(Date.now()<deadline){
+      this.check();
+      const st=shop.platform==='jd'
+        ?await(this.jdAdapter||=new(require('./promotion-fee-jd.cjs').JdPromotionFee)({host:this})).observe(win)
+        :await this.authState(win);
+      if(KIND[st.status]){raw=st.status;break;}
+      await wait(400);
+     }
+     return raw;
+    }catch(error){return 'unknown';}
+    finally{ // 自己开的检查窗口用完即收，避免在桌面/内存里堆窗口；会话窗口（keepAlive）不动
+     try{if(win&&!win.isDestroyed()&&created&&!win.promotionKeepAlive&&!win.isVisible())win.destroy();}catch{}
+    }
+   };
+   const worker=async()=>{while(next<shops.length){const shop=shops[next++];const raw=await this.queryContext.run(shop.id,()=>probe(shop));const status=KIND[raw]||'unknown';checks[shop.id]={status,at:new Date().toISOString()};this.log('login-check',shop.name+' '+status+(KIND[raw]?'':' (未确认:'+raw+')'));}};
+   await Promise.allSettled(Array.from({length:Math.min(Math.max(this.concurrency,1),4)},()=>worker()));
+   this.data.loginChecks={...(this.data.loginChecks||{}),checkedAt:new Date().toISOString(),...checks};
+   this.save(this.data);
+   const results=shops.map(s=>({shopId:s.id,shopName:s.name,status:checks[s.id]?checks[s.id].status:'unknown'}));
+   const counts={ok:0,expired:0,verification:0,rejected:0,unknown:0};for(const r of results)counts[r.status]++;
+   return {checkedAt:this.data.loginChecks.checkedAt,results,counts,seconds:Math.round((Date.now()-startedAt)/1000)};
+  }finally{this.checkBusy=false;}
+ }
  async query(shop,dates,context={}){
   if(this.adapter)return this.adapter(shop,dates);
   if(shop.platform==='douyin')throw Error('抖音推广费抓取尚未接入');
   if(shop.platform==='jd'){
    this.jdAdapter ||= new(require('./promotion-fee-jd.cjs').JdPromotionFee)({host:this});
-   // 京东账单按记账时间延迟一天体现：查询日期整体后移一天，结果行仍以用户所选日期记录。
-   return this.jdAdapter.query(shop,{start:shiftDate(dates.start,1),end:shiftDate(dates.end,1)},context);
+   // 京东按「记账时间」出账：业务日期 D 的数据要按 D+1 天筛选（淘宝/天猫不位移）。结果行仍记业务日期，
+   // 实际筛选日期另存 queryStart/queryEnd 供界面展示。
+   // 今天的数据还没出账（要明天才筛得到），因此结束日钳制到今天，绝不向页面提交未来日期：
+   // 否则「本月」这类默认区间（结束日=今天）会让京东落在明天，页面选不中、整店失败。
+   const today=bjToday(),query={start:shiftDate(dates.start,1),end:shiftDate(dates.end,1)},clamped=query.end>today;
+   if(clamped)query.end=today;
+   if(query.start>query.end)throw Error('京东账单按记账时间次日出账：'+dates.end+' 的数据要等到 '+shiftDate(dates.end,1)+' 才筛得到，请改用更早的日期（最晚可查 '+shiftDate(today,-1)+'）');
+   const result=await this.jdAdapter.query(shop,query,context);
+   return {...result,queryStart:query.start,queryEnd:query.end,queryClamped:clamped,coverageEnd:clamped?shiftDate(query.end,-1):dates.end};
   }
   const win=this.window(shop),wc=win.webContents;
   const identity=await this.authenticate(shop,win);
   // 参数来自官方日期/扣款控件；最终仍须核对实际页面，不能只信URL。
   const url=ACCOUNT+'?currentPage=1&trade=DEDUCT&cashStart='+dates.start+'&cashEnd='+dates.end;
   this.phase='正在读取 '+shop.name+' 推广费';await this.load(win,url);
-  let prior=null,stable=0,recoveryUsed=false,mismatch=null,readyUntil=Date.now()+(this.pageReadyTimeoutMs||20000);
+  let prior=null,stable=0,recoveryUsed=false,mismatch=null,mismatchLogged=false,readyUntil=Date.now()+(this.pageReadyTimeoutMs||20000);
   while(Date.now()<readyUntil){
    this.assertWindow(win);
    if(!trusted(wc.getURL()))throw Error('页面已离开官方推广账户');
@@ -350,7 +509,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
    if(!state.loading&&state.trade==='DEDUCT'&&state.start===dates.start&&state.end===dates.end&&state.dateType==='交易日期'&&state.controls.includes('扣款')&&state.amount){
     const actual=displayedRange(state.controls);
     const problem=!state.identityLabels.includes(identity)&&!(state.accountLabels||[]).some(v=>v.normalize('NFKC').trim().toLowerCase()===shop.username.normalize('NFKC').trim().toLowerCase())?'推广账单的店铺身份未确认，未返回金额':!actual||actual.start!==dates.start||actual.end!==dates.end?'页面实际显示的日期范围未确认，未返回金额':null;
-    if(problem){stable=0;prior=null;mismatch=problem;await wait(350);continue;}
+    if(problem){stable=0;prior=null;mismatch=problem;if(!mismatchLogged){mismatchLogged=true;this.log('query-date-mismatch',shop.name+' controls='+JSON.stringify(state.controls)+' urlRange='+state.start+'~'+state.end+' dateType='+state.dateType);}await wait(350);continue;}
     mismatch=null;
     // 页面时钟、提示文案等无关内容变化不影响金额；身份/日期/金额须连续一致。
     const key=JSON.stringify([state.amount,state.controls,identity]);stable=key===prior?stable+1:0;prior=key;
@@ -363,16 +522,16 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   }
   throw Error(mismatch||'未确认扣款、交易日期、日期范围及稳定金额，未返回数值');
  }
- async start(input){if(this.busy||this.loginBusy||this.accountTransferBusy)throw Error('推广费查询或登录正在运行');if(this.writeFailure)throw Error('本机保存失败，已停止后续查询');const dates=range(input),ids=[...new Set(input.shopIds||[])];if(!ids.length)throw Error('请勾选店铺');const shops=ids.map(id=>this.shop(id));const runId=randomUUID();const rows=shops.map(s=>({runId,shopId:s.id,shopName:s.name,platform:s.platform||'taobao',...dates,status:'queued',amountCents:null}));this.save({...this.data,results:[...this.data.results,...rows]});this.interactive=false;this.log('run-start',shops.length+' 家 '+dates.start+'~'+dates.end+' 并发 '+this.concurrency);this.busy=true;this.stopped=false;this.lastError='';this.work=this.run(shops,dates,runId).catch(error=>{this.lastError=error.message;}).finally(()=>{this.busy=false;this.current=null;this.phase='';});return this.state();}
+ async start(input){if(this.busy||this.loginBusy||this.accountTransferBusy||this.checkBusy)throw Error('推广费查询、登录或登录验证正在运行');if(this.writeFailure)throw Error('本机保存失败，已停止后续查询');const dates=range(input),ids=[...new Set(input.shopIds||[])];if(!ids.length)throw Error('请勾选店铺');const shops=ids.map(id=>this.shop(id));const runId=randomUUID();const rows=shops.map(s=>({runId,shopId:s.id,shopName:s.name,platform:s.platform||'taobao',...dates,status:'queued',amountCents:null}));this.save({...this.data,results:[...this.data.results,...rows]});this.interactive=false;this.log('run-start',shops.length+' 家 '+dates.start+'~'+dates.end+' 并发 '+this.concurrency);this.busy=true;this.stopped=false;this.lastError='';this.loginCaptures=0;this.loginCapturedShops=new Set();this.work=this.run(shops,dates,runId).catch(error=>{this.lastError=error.message;}).finally(()=>{this.busy=false;this.current=null;this.phase='';});return this.state();}
  async run(shops,dates,runId){let next=0;const worker=async()=>{while(next<shops.length){if(this.stopped||this.writeFailure)return;const shop=shops[next++];await this.queryContext.run(shop.id,async()=>{this.activeQueries.set(shop.id,{phase:'正在查询 '+shop.name});try{const patch=value=>this.save({...this.data,results:this.data.results.map(r=>r.runId===runId&&r.shopId===shop.id?{...r,...value,updatedAt:new Date().toISOString()}:r)});patch({status:'running'});this.log('shop-start',shop.name);const startedAt=Date.now();try{const priorAccounts=this.data.results.find(r=>r.runId===runId&&r.shopId===shop.id)?.accounts;const result=await this.query(shop,dates,{priorAccounts,onAuthorizationNotices:notices=>{this.check();patch({authorizationNotices:notices});},onAccounts:accounts=>{this.check();patch({accounts});}});this.check();
      // 校验规则：有 accounts 时，顶层金额必须等于 completed 子账户之和（全为财务号/无推广时为 null 合法）；
      // 无 accounts（淘宝/千牛路径）保持原规则：金额必须是合法非负整数
      const hasAccounts=Array.isArray(result.accounts)&&result.accounts.length>0,completed=hasAccounts?result.accounts.filter(a=>a.status==='completed'):[];
      const moneyOk=hasAccounts?completed.every(a=>Number.isSafeInteger(a.amountCents)&&a.amountCents>=0)&&(completed.length?Number.isSafeInteger(result.amountCents)&&result.amountCents===completed.reduce((n,a)=>n+a.amountCents,0):result.amountCents===null):(Number.isSafeInteger(result.amountCents)&&result.amountCents>=0);
-     if(result.shopName!==this.shop(shop.id).name||(result.status==='failed'&&result.amountCents!==null)||(result.status!=='failed'&&!moneyOk))throw Error('店铺或金额核对失败');patch({...result,status:result.status||'completed'});this.log('shop-done',shop.name+' '+(Date.now()-startedAt)+'ms '+(result.amountCents??''));}catch(error){if(this.writeFailure)return;const manual=error.code==='NEEDS_MANUAL';if(!manual)this.showProblem(this.windows.get(shop.id));this.log(manual?'shop-manual':'shop-failed',shop.name+' '+(Date.now()-startedAt)+'ms | '+(error.reason||'')+' | '+error.message);patch({status:this.stopped?'paused':manual?'manual':'failed',error:/Object has been destroyed|Render frame was disposed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message,amountCents:null,...(manual?{manualReason:error.reason||'manual'}:{})});}}finally{this.activeQueries.delete(shop.id);this.releaseCompletedWindow(shop.id,runId);}});}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,shops.length)},()=>worker()));const tally={};for(const r of this.data.results)if(r.runId===runId)tally[r.status]=(tally[r.status]||0)+1;this.log('run-end',JSON.stringify(tally));const failed=settled.find(r=>r.status==='rejected');if(failed)throw failed.reason;
+     if(result.shopName!==this.shop(shop.id).name||(result.status==='failed'&&result.amountCents!==null)||(result.status!=='failed'&&!moneyOk))throw Error('店铺或金额核对失败');patch({...result,status:result.status||'completed'});this.log('shop-done',shop.name+' '+(Date.now()-startedAt)+'ms '+(result.amountCents??''));}catch(error){if(this.writeFailure)return;const manual=error.code==='NEEDS_MANUAL';const pbWin=this.windows.get(shop.id);try{if(pbWin&&!pbWin.isDestroyed())pbWin.hide();}catch{}this.log(manual?'shop-manual':'shop-failed',shop.name+' '+(Date.now()-startedAt)+'ms | '+(error.reason||'')+' | '+error.message);patch({status:this.stopped?'paused':manual?'manual':'failed',error:/Object has been destroyed|Render frame was disposed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message,amountCents:null,...(manual?{manualReason:error.reason||'manual'}:{})});}}finally{this.activeQueries.delete(shop.id);this.releaseCompletedWindow(shop.id,runId);}});}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,shops.length)},()=>worker()));const tally={};for(const r of this.data.results)if(r.runId===runId)tally[r.status]=(tally[r.status]||0)+1;this.log('run-end',JSON.stringify(tally));const failed=settled.find(r=>r.status==='rejected');if(failed)throw failed.reason;
  if(!this.writeFailure)this.save({...this.data,results:this.data.results.map(r=>r.runId===runId&&['queued','running'].includes(r.status)?{...r,status:'paused',error:'尚未查询'}:r)});}
  async retry(){if(this.busy||this.loginBusy||this.accountTransferBusy)throw Error('查询或登录正在运行');if(this.writeFailure)throw Error('本机保存失败，已停止后续查询');const suspect=r=>Array.isArray(r.accounts)&&r.accounts.some(a=>a.status==='none'||a.status==='finance-only');const rows=this.state().results.filter(r=>!r.accountChanged&&this.data.shops.some(s=>s.id===r.shopId)&&(r.status!=='completed'||suspect(r)));if(!rows.length)throw Error('没有可补查的已配置账号');const dates=range(rows[0]),runId=rows[0].runId,shops=rows.map(r=>this.shop(r.shopId));this.interactive=false;this.log('retry-start',shops.length+' 家');this.save({...this.data,results:this.data.results.map(r=>{if(r.runId!==runId||!shops.some(s=>s.id===r.shopId))return r;if(r.status!=='completed')return {...r,status:'queued',error:'',amountCents:null};return suspect(r)?{...r,status:'queued',error:'',amountCents:null,accounts:r.accounts.filter(a=>a.status==='completed')}:r;})});this.busy=true;this.stopped=false;this.lastError='';this.work=this.run(shops,dates,runId).catch(error=>{this.lastError=error.message;}).finally(()=>{this.busy=false;this.current=null;this.phase='';});return this.state();}
  pause(){this.stopped=true;return this.state();}
  close(){this.stopped=true;for(const w of [...this.windows.values(),...(this.problemWindows||[])])if(!w.isDestroyed())w.destroy();}
 }
-module.exports={PLATFORM_NAMES,PromotionFee,inspect,cents,range,trusted,displayedRange,dateBounds,shiftDate,manualError};
+module.exports={PLATFORM_NAMES,PromotionFee,inspect,cents,range,trusted,displayedRange,dateBounds,shiftDate,bjToday,manualError};

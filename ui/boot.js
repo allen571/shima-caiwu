@@ -26,6 +26,33 @@ document.getElementById('finance-version').textContent=window.FUND_VERSION;
   finally{button.disabled=false;}
  };
 })();
+// v1.2.83：打开随主程序一起内置的「财务工作台」（FinanceHub，本机 8765 端口的数据服务）
+(()=>{
+ const button=document.getElementById('finance-workbench');
+ const api=window.selectionDesktop&&window.selectionDesktop.app;
+ if(!button)return;
+ if(!api){button.disabled=true;button.title='当前环境不支持启动工作台';return;}
+ const clean=message=>String(message&&message.message||message||'未知错误').replace(/^Error invoking remote method '[^']+':\s*/,'').replace(/^Error:\s*/,'');
+ const reset=label=>setTimeout(()=>{button.textContent=label;},6000);
+ api('workbenchStatus').then(info=>{
+  if(!info||!info.available){button.disabled=true;button.textContent='无内置工作台';button.title='当前运行的是开发模式（或该版本未内置工作台）';return;}
+  if(info.running){button.textContent='工作台已运行';button.title='财务工作台已在 127.0.0.1:'+info.port+' 运行，点一下可以再唤起一次';}
+  else button.title='启动内置的财务工作台（'+info.size/1048576+' MB，首次启动约几秒）';
+ }).catch(()=>{});
+ button.onclick=async()=>{
+  if(!api||button.disabled)return;
+  const previous=button.textContent;button.disabled=true;button.textContent='启动中…';
+  try{
+   const result=await api('workbenchLaunch');
+   if(result&&result.already)button.textContent='工作台已在运行';
+   else if(result&&result.running)button.textContent='工作台已启动';
+   else if(result&&result.note)button.textContent='已启动（端口未就绪）';
+   else button.textContent=previous||'打开工作台';
+   reset('打开工作台');
+  }catch(error){button.textContent=clean(error).slice(0,40);reset('打开工作台');}
+  finally{button.disabled=false;}
+ };
+})();
 const tabs=document.getElementById('finance-tabs'),views={promotion:document.getElementById('app'),fund:document.getElementById('fund-app')};
 tabs.addEventListener('click',event=>{
  const button=event.target.closest('[data-tab]');if(!button)return;

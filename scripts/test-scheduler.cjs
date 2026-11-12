@@ -180,7 +180,7 @@ test('未启用计划：tick 不做任何事；runNow 手动触发不受 enabled
  assert.equal(service.calls[0].start,'2026-11-08');
 });
 
-test('v1.2.62 二轮含「无/财务号」：completed 但子账户含 none/finance-only 的店进第二轮；两轮后仍 suspect 计入失败并带说明',async()=>{
+test('v1.2.91 二轮含「无/财务号」：completed 但子账户含 none/finance-only 的店进第二轮；两轮后仍 suspect 按无数据处理（不计失败、不带红字）',async()=>{
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0);
@@ -198,16 +198,18 @@ test('v1.2.62 二轮含「无/财务号」：completed 但子账户含 none/fina
  // 第二轮推广费必须包含 t2（suspect）和 j1（failed），不含 t1
  assert.equal(service.calls.length,2,'推广费应有两轮');
  assert.deepEqual([...service.calls[1].shopIds].sort(),['j1','t2'],'第二轮须含「无/财务号」店铺，不得漏');
- // 第二轮后 t2 仍 suspect、j1 仍 failed → 都计入失败；t1 一轮成功
+ // 第二轮后 t2 仍 suspect → v1.2.91 口径按无数据处理：保留 suspect 标记、不写红字说明、不计失败；j1 仍 failed；t1 一轮成功
  const record=s.data.history[s.data.history.length-1];
  const byId=Object.fromEntries(record.rows.map(r=>[r.shopId,r]));
  assert.equal(byId.t1.promo.round,1,'t1 一轮成功');
  assert.ok(!byId.t1.promo.suspect,'t1 非 suspect');
- assert.equal(byId.t2.promo.suspect,true,'t2 仍 suspect 要标出');
- assert.ok(byId.t2.error.includes('无/财务号'),'t2 说明带「无/财务号」提示');
+ assert.equal(byId.t2.promo.round,1,'t2 记在第一轮（假服务二轮同 runId 被 runRound 过滤）');
+ assert.equal(byId.t2.promo.suspect,true,'t2 仍 suspect 要标出（供灰色无数据徽标）');
+ assert.equal(byId.t2.error,'','t2 不再写红字说明（按无数据处理）');
  assert.ok(byId.j1.error.includes('登录超时'),'j1 保留原失败原因');
- assert.equal(record.summary.failed,2,'t2+j1 计入失败（避免漏数）');
- assert.equal(record.summary.okRound1,1,'仅 t1 一轮成功');
+ assert.equal(record.summary.failed,1,'仅 j1 计入失败（t2 按无数据处理）');
+ assert.equal(record.summary.okRound1,2,'t1 一轮成功 + t2 按无数据处理计入成功');
+ assert.equal(record.summary.okRound2,0,'无二轮成功');
  assert.equal(record.status,'partial');
 });
 
@@ -289,4 +291,67 @@ test('v1.2.63 UI 脚本兜底：schedule.js/boot.js/index.html 引用一致且�
  // ③ boot.js 必须挂载两个槽
  const boot=fs.readFileSync('ui/boot.js','utf8');
  assert.ok(boot.includes("schedule-slot-promo")&&boot.includes("schedule-slot-fund"),'boot.js 应挂载两个嵌入槽');
+});
+
+// —— v1.2.84 跑完自动下载当日明细 ——
+
+// 组装一个「计划全绿」环境：推广费+资金全部一轮完成，资金模块带 downloadDay 记录器
+function greenEnv(){
+ const root=tempRoot();
+ const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
+ const now=()=>Date.UTC(2026,10,9,0,31,0); // 北京 2026-11-09 08:31 → T-1 = 11-08
+ const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ s.configure({enabled:true,time:'08:30',autoExport:false});
+ service.setPreset(input=>{for(const id of input.shopIds)service.data.results.push({runId:'r'+id,shopId:id,start:'2026-11-08',end:'2026-11-08',status:'completed',amountCents:100});});
+ fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f'+id,shopId:id,month:'2026-11',day:'2026-11-08',status:'completed',incomeCents:100,expenseCents:0,balanceCents:100,incomeCount:1,expenseCount:0});});
+ return {s,service,fund};
+}
+
+test('自动下载当日明细：默认开，只对资金完成的淘宝/天猫店逐家调用单日下载，京东跳过',async()=>{
+ const {s,service,fund}=greenEnv();
+ fund.detailCalls=[];
+ fund.downloadDay=async input=>{fund.detailCalls.push({...input});return {files:['a.xlsx','b.xlsx'],note:''};};
+ await s.tick();
+ assert.deepEqual(fund.detailCalls.map(c=>c.shopId),['t1','t2'],'只有淘宝/天猫资金完成店参与');
+ assert.ok(fund.detailCalls.every(c=>c.date==='2026-11-08'),'单日下载日期必须是 T-1');
+ assert.equal(s.data.lastRun.summary.detail.files,4,'明细文件数汇总');
+ assert.equal(s.data.lastRun.summary.detail.failed,0);
+ assert.equal(s.data.lastRun.summary.detail.shops,2);
+});
+
+test('自动下载当日明细：开关关闭时不调用；单店失败不影响计划状态',async()=>{
+ // 关开关：不调用
+ const a=greenEnv();
+ a.fund.detailCalls=[];
+ a.fund.downloadDay=async input=>{a.fund.detailCalls.push({...input});return {files:[],note:''};};
+ a.s.configure({autoDetailDownload:false});
+ await a.s.tick();
+ assert.equal(a.fund.detailCalls.length,0,'关闭后不应下载');
+ // 开开关但下载全部抛错：计划状态仍由推广费/资金决定，错误记在各行
+ const b=greenEnv();
+ b.fund.detailCalls=[];
+ b.fund.downloadDay=async input=>{throw Error('官方页面加载超时');};
+ await b.s.tick();
+ assert.equal(b.s.data.lastRun.status,'done','明细下载失败不改变计划成败');
+ assert.equal(b.s.data.lastRun.summary.detail.failed,2,'失败家数如实计数');
+ assert.ok(b.s.data.lastRun.summary.detail.files===0);
+ const rec=b.s.data.history.at(-1);
+ assert.equal(rec.rows.find(r=>r.shopId==='t1').detailError,'官方页面加载超时','失败原因落到行上');
+});
+
+test('Excel 明细文件列：下载成功的店显示份数，京东店留空',async()=>{
+ const {s,service,fund}=greenEnv();
+ s.configure({autoExport:true});
+ fund.detailCalls=[];
+ fund.downloadDay=async input=>({files:['a.xlsx'],note:''});
+ await s.tick();
+ const XLSX=require('../vendor/xlsx.full.min.js');
+ try{XLSX.set_fs(fs);}catch(e){}
+ const wb=XLSX.readFile(s.data.lastRun.exportFile);
+ const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1});
+ assert.equal(rows[0][13],'明细文件','新增「明细文件」列');
+ const t1=rows.find(r=>r[1]==='淘宝一号店');
+ assert.equal(String(t1[13]),'1 个','资金完成店显示份数');
+ const j=rows.find(r=>r[1]==='京东一号店');
+ assert.equal(String(j[13]||''),'','京东店该列留空');
 });
