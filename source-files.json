@@ -1,9 +1,9 @@
 {
   "createdAt": "2026-10-23T02:12:59.309Z",
-  "source": "shima-operations-ai-workbench, promotion-fee extraction; independent finance shell; 2026-11-12 changes: preserve verification windows, resume verified pre-submit login once, handle detached frames, speed up background fund navigation, and retry a stable date confirmation; 2026-11-14 changes: display plan dates, scope results by period, select accounts needing reauthentication, and show saved JD settlement dates; 2026-11-14 changes: observe manually completed logins for previously bound shops, persist verified sessions, then hide the corresponding window; 2026-11-14 changes: disable automatic and manual diagnostic packages and crash reports while retaining failure messages",
+  "source": "shima-operations-ai-workbench, promotion-fee extraction; independent finance shell; 2026-11-12 changes: preserve verification windows, resume verified pre-submit login once, handle detached frames, speed up background fund navigation, and retry a stable date confirmation; 2026-11-14 changes: display plan dates, scope results by period, select accounts needing reauthentication, and show saved JD settlement dates; 2026-11-14 changes: observe manually completed logins for previously bound shops, persist verified sessions, then hide the corresponding window; 2026-11-14 changes: disable automatic and manual diagnostic packages and crash reports while retaining failure messages; 2026-11-14 changes: add an opt-in anonymized diagnostic report with no raw account, page or financial data",
   "version": "1.2.98",
   "files": {
-    "electron/main.cjs": "b791f981a6d0c796feacdc6aabf64b8b9c338b129852c794bf08f2a2956e147e",
+    "electron/main.cjs": "0f3ac829c17d1067462de4ab18cc71cf222638f0bef3275a8e907675f9683e7b",
     "electron/platform-login.cjs": "517dbe59859ef657bd9b81bc000a4a05eb932eacfe5e4b415f29adff43f98aab",
     "electron/preload.cjs": "57d9ec25fc6b30f2cf2a5f12eb5f80433ea96ca77b50aaf7b75e15acc77a187d",
     "electron/promotion-fee-accounts.cjs": "cdf5bc955afdc226fa67284e6759617879cf294e03107ebfdd0918911fdef2d5",
@@ -27,10 +27,10 @@
     "scripts/test-promotion-fee-jd-negative-confirm.cjs": "cec83c5028cfa9dcc0b06640b2e170c2149b3df544a8c370132acfbdfbd1a686",
     "scripts/test-promotion-fee-jd-auth-diagnostics.cjs": "81bd4ee13c3dd1c432aad28d42d12e3836b30a0ecfd464055b56546c5f44d00e",
     "electron/fund-summary.cjs": "4b37fd8d4475c686e9b4b77ed4eb95207e1892a76bde7bedd1ea1593b13bf530",
-    "ui/fund-summary.js": "50515311d44cde95c2d45634ca3f42d524875fda6da676ee8618b788a2432d21",
+    "ui/fund-summary.js": "c9ef55394f11ab0549dd5db363b57743e99b328bfd2597f0f000765cfffa7e34",
     "ui/fund-summary.css": "0d88867116afb856c8dd38a91dc21d6de1945640570187222cb15dd7cb985f34",
     "scripts/test-fund-summary.cjs": "4d81d93e6d58393b2a792dfcf8230eea1f32367645f36d13a8cbe2e5b0906fd0",
-    "scripts/smoke.cjs": "c2f5f74477c0c1ab9e2cfe8c16d6ae7327a923b8d71e548ba5cc40b2483ad625",
+    "scripts/smoke.cjs": "0b84c0e78f24c90485290e12e220a47802a5eb081c00ae66cf97e6157b2f7e03",
     "scripts/test-promotion-fee-jd-auth-page-script.cjs": "ae2005c2cb5e7c7a0014db23383f1f2877afb267bc24dcfc31c7674102489502",
     "builder.config.cjs": "47e0b53999fd7dffb4502c092985e781860c485831327270dbe4cd212f087666",
     "scripts/packaged-smoke.cjs": "e1a42f1ec551dbf7a619b29fcc2ecc12cbaf31a3c7c26ba8bf777dd8f02f5fa6",
@@ -46,7 +46,9 @@
     "scripts/test-promotion-fee-login-diagnostic.cjs": "5fb6ccb72c0cfeee13741879ae842055f73651ea4386dcfec9b464bb45b5c733",
     "scripts/test-result-merge.cjs": "337a08d2d23b34d71d600461d1efc4bf1191df74ea860a3bf3642b45d2947e26",
     "scripts/test-save-recovery.cjs": "1e6207eb9a64e8ae5201723cc91d404b88ddf938a6483b8f93ad2ac596ff20ce",
-    "scripts/test-promotion-fee-login-check.cjs": "a9fa437df10dec95f72a2a6ba3cb635b0a40490722143b93d8fd8d32330084df"
+    "scripts/test-promotion-fee-login-check.cjs": "a9fa437df10dec95f72a2a6ba3cb635b0a40490722143b93d8fd8d32330084df",
+    "electron/diagnostic-export.cjs": "3e410e9ce6ca43b2f6709039d39b19afa40e1785a562dd6e00d10fd62edc81ca",
+    "scripts/test-diagnostic-export.cjs": "875293a3a44c8b24f809e15bc10685fbcde08a6e0108193d7659f1686b096d93"
   },
   "changes": [
     {

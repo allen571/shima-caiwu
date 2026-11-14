@@ -126,6 +126,10 @@ if(!app.requestSingleInstanceLock()){
     if(answer.canceled)return {...fund.state(),cancelled:true};
     return fund.setExportFolder(answer.filePaths[0]);
    });
+   ipcMain.handle('app:exportDiagnostic',async event=>{
+    if(event.sender!==main.webContents||event.senderFrame!==main.webContents.mainFrame)throw Error('无权访问');
+    return require('./diagnostic-export.cjs').exportDiagnostic({service,fund,version:app.getVersion(),platform:process.platform,arch:process.arch,dialog,parent:main,downloads:app.getPath('downloads')});
+   });
    // v1.2.82：导出随安装包内置的源码快照（打包时由 electron-builder extraResources 放进 resources/）
    for(const action of ['sourceInfo','exportSource'])ipcMain.handle('app:'+action,async event=>{
     if(event.sender!==main.webContents||event.senderFrame!==main.webContents.mainFrame)throw Error('无权访问');

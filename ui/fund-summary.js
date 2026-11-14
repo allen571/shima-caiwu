@@ -9,7 +9,7 @@ window.FundSummary={async mount(host){
  host.innerHTML=`<div class="fund-summary">
   <section class="fs-card">
    <div class="fs-heading"><div><span class="fs-eyebrow">资金管理</span><h2>资金月汇总</h2></div>
-    <div class="fs-actions"><button id="fs-start">一键抓取所选</button><button id="fs-start-retry" title="备选入口：「一键抓取所选」点了没反应/按钮灰着不恢复时用——强制重置上一轮的抓取/导出状态，再按当前勾选重新抓取">备选抓取</button><button id="fs-start-manual">手动接管抓取</button><button id="fs-select-failed">勾选失败</button><button id="fs-pause">暂停</button></div></div>
+    <div class="fs-actions"><button id="fs-start">一键抓取所选</button><button id="fs-start-retry" title="备选入口：「一键抓取所选」点了没反应/按钮灰着不恢复时用——强制重置上一轮的抓取/导出状态，再按当前勾选重新抓取">备选抓取</button><button id="fs-start-manual">手动接管抓取</button><button id="fs-select-failed">勾选失败</button><button id="fs-pause">暂停</button><button id="fs-diagnose" class="fs-ghost" title="手动保存匿名状态和错误分类，不包含账号、密码、Cookie、金额或页面内容">生成诊断信息</button></div></div>
    <p>抓取「财务 → 资金管理 → 聚合结算账户 → 月汇总」，按月读取收入、支出笔数与金额、期末余额。官方月汇总只在整月结束后出账，<strong>当月缺数据时会自动改抓「日汇总」并按天累加</strong>（结果标注「日汇总累计 N天」，期末余额取当月末一条）。账号与推广费页共用，登录一次两边可用；需要人工验证时会弹出官方窗口。京东/抖音账号不参与本页。<strong>抓取按勾选顺序逐个店铺串行执行（同一时刻只开一个店铺窗口），某家需要人工登录/验证时会停下等它完成，再继续下一家</strong>。</p>
    <div class="fs-controls">
     <label>开始月份<input type="month" id="fs-month-start"></label>
@@ -106,6 +106,7 @@ $('#fs-start-retry').onclick=async()=>{if(retrying)return;retrying=true;render()
 $('#fs-manual-confirm').onclick=()=>act(async()=>{const pending=state.manualPending;if(!pending)return message('当前没有等待中的店铺');await api('confirmManual',pending.shopId);message('已确认，继续读取「'+pending.name+'」');},150);
 $('#fs-manual-skip').onclick=()=>act(async()=>{const pending=state.manualPending;if(!pending)return message('当前没有等待中的店铺');await api('skipManual',pending.shopId);message('已跳过「'+pending.name+'」，继续下一家');},150);
  $('#fs-select-failed').onclick=()=>{const ids=new Set((state.results||[]).filter(r=>!r.carriedOver&&['failed','paused','manual'].includes(r.status)).map(r=>r.shopId));selected=new Set((state.shops||[]).filter(s=>['taobao','tmall'].includes(s.platform)&&(ids.has(s.id)||needsLogin(s))).map(s=>s.id));$('#fs-shops').dataset.touched='1';render();message(selected.size?'已勾选 '+selected.size+' 个失败或需要重新登录的店铺':'没有失败或需要重新登录的店铺');};
+ $('#fs-diagnose').onclick=()=>act(async()=>{const r=await window.selectionDesktop.app('exportDiagnostic');if(!r.cancelled)message('诊断信息已保存：'+r.path+'；发送前请检查文件内容');});
  $('#fs-pause').onclick=()=>act(async()=>{await api('pause');message('已请求暂停，保留已抓取结果');});
 // 批量下载明细（v1.2.80）：任务表与逐家 download() 收敛到主进程（API downloadBatch），
 // 与「抓取后自动下载」共用同一条逻辑，进度靠 state.phase 轮询显示。

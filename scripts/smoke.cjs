@@ -215,7 +215,7 @@ exports.run=async({app,main,service,dialog})=>{
   assert.equal(await js(`document.querySelector('#fs-manual').hidden`),true,'手动接管条默认隐藏');
   assert.equal(await js(`getComputedStyle(document.querySelector('#fs-manual')).display`),'none','隐藏时计算样式必须不显示');
   assert.equal(await js(`document.querySelector('#fs-start-manual').disabled`),false);
-  assert.equal(await js(`document.querySelector('#fs-diagnose')`),null);
+  assert.equal(await js(`document.querySelector('#fs-diagnose').disabled`),false);
   assert.equal(await js(`document.querySelector('#fs-shops').hidden`),true,'店铺胶囊默认折叠');
   assert.equal(await js(`getComputedStyle(document.querySelector('#fs-shops')).display`),'none','折叠时计算样式必须真实不显示（CSS 不能压过 hidden）');
   assert.ok(await js(`document.querySelector('#fs-shops-toggle').textContent.includes('共 ${fundShops.length} 家')`));
