@@ -1,6 +1,6 @@
 {
   "createdAt": "2026-10-23T02:12:59.309Z",
-  "source": "shima-operations-ai-workbench, promotion-fee extraction; independent finance shell; 2026-11-12 changes: preserve verification windows, resume verified pre-submit login once, handle detached frames, speed up background fund navigation, and retry a stable date confirmation; 2026-11-14 changes: display plan dates, scope results by period, select accounts needing reauthentication, and show saved JD settlement dates; 2026-11-14 changes: observe manually completed logins for previously bound shops, persist verified sessions, then hide the corresponding window; 2026-11-14 changes: disable automatic and manual diagnostic packages and crash reports while retaining failure messages; 2026-11-14 changes: add an opt-in anonymized diagnostic report with no raw account, page or financial data",
+  "source": "shima-operations-ai-workbench, promotion-fee extraction; independent finance shell; 2026-11-12 changes: preserve verification windows, resume verified pre-submit login once, handle detached frames, speed up background fund navigation, and retry a stable date confirmation; 2026-11-14 changes: display plan dates, scope results by period, select accounts needing reauthentication, and show saved JD settlement dates; 2026-11-14 changes: observe manually completed logins for previously bound shops, persist verified sessions, then hide the corresponding window; 2026-11-14 changes: disable automatic and manual diagnostic packages and crash reports while retaining failure messages; 2026-11-14 changes: add an opt-in anonymized diagnostic report with no raw account, page or financial data; 2026-11-14 changes: daily plan obtains an independent month-to-date promotion snapshot before its T-1 runs, preserving daily records and reporting snapshot failures",
   "version": "1.2.98",
   "files": {
     "electron/main.cjs": "0f3ac829c17d1067462de4ab18cc71cf222638f0bef3275a8e907675f9683e7b",
@@ -35,10 +35,10 @@
     "builder.config.cjs": "47e0b53999fd7dffb4502c092985e781860c485831327270dbe4cd212f087666",
     "scripts/packaged-smoke.cjs": "e1a42f1ec551dbf7a619b29fcc2ecc12cbaf31a3c7c26ba8bf777dd8f02f5fa6",
     "package.json": "689483ded45527d64502c94b2088bd1916cc9c8d953c71f1d55d14903f44c5c7",
-    "electron/scheduler.cjs": "c9d40d346139a0ae3c2a506a320c9d937ad2198ac7f286695e1eac2cd82cae1c",
-    "ui/schedule.js": "35743553a4b4fe9f0b64d610613564d83b66a2c94948f9d36ce8c1d7ec53702e",
+    "electron/scheduler.cjs": "fec6d2896402d77d579c297facdc54e49210fe0ad4394f79d50885055ed6b688",
+    "ui/schedule.js": "2f698a5887f79b6a1aee942e83548ce5980b7e770f4be8232fc28ea9afa0df2a",
     "ui/schedule.css": "cb43fe539952935dd994f0d225fcc9d23df6062a21b94e05b587356bf7402975",
-    "scripts/test-scheduler.cjs": "a8c40d86df6712df99a00e0a10eb6fbe693658d9c46b5980e6c7d37f122721c2",
+    "scripts/test-scheduler.cjs": "a5872cbc1e65a6fbb75910f6e12ff7158665f7d070d077972d7b36b0c78bb661",
     "electron/source-export.cjs": "cd9b25bd9112fb815515e357b1d21aff6ddbd28e434dc56d3313798b59c647d7",
     "scripts/test-source-export.cjs": "180b7e36dcc606db59c537ca20919d16f49f32a5f3a456a0df325857e9cf333b",
     "electron/workbench-launcher.cjs": "4c4be688df75af53e4f3096b7bc79fb9ff1602b453035284f21678cdd09e9a1e",

@@ -39,7 +39,7 @@ const promoSuspect=r=>Array.isArray(r.accounts)&&r.accounts.some(a=>a.status==='
 const promoNeedRetry=r=>!r||(r.status!=='completed'&&r.status!=='manual')||promoSuspect(r);
 
 class Scheduler{
- constructor({service,fund,root,now,netProbe,netRetryMs}){
+ constructor({service,fund,root,now,netProbe,netRetryMs,refreshMonthly=true}){
   this.service=service;   // 推广费 PromotionFee 实例
   this.fund=fund;         // 资金 FundSummary 实例
   this.root=root;         // userData 目录
@@ -47,6 +47,7 @@ class Scheduler{
   this.now=now||(()=>Date.now());
   this.netProbe=netProbe||null; // 测试可注入；真实环境用 waitNetworkReady 内的默认探测
   this.netRetryMs=netRetryMs||30000;
+  this.refreshMonthly=refreshMonthly;
   this.running=false;this.phaseText='';this.timer=null;
   this.work=null;
   this.data=this.load();
@@ -175,6 +176,18 @@ class Scheduler{
    const shops=this.service.data.shops||[];
    const allIds=shops.map(s=>s.id);
    const fundIds=shops.filter(s=>['taobao','tmall'].includes(s.platform||'taobao')).map(s=>s.id);
+   // 月累计快照先抓，单日结果后抓，确保工作台默认仍展示本次单日计划。
+   // 月初第一天的累计与单日是同一个区间，无需重复抓。
+   if(this.refreshMonthly&&allIds.length&&day.slice(8)!=='01'){
+    this.phaseText='每日计划（'+day+'）更新推广费月累计（'+allIds.length+' 家）';
+    const before=new Set(this.service.data.results.map(r=>r.runId));
+    await this.service.start({shopIds:allIds,start:monthOf(day)+'-01',end:day});
+    if(this.service.work)await this.service.work;
+    if(this.service.writeFailure)throw Error(this.service.lastError||'推广费记录保存失败，已停止后续抓取');
+    const rows=this.service.data.results.filter(r=>!before.has(r.runId)&&allIds.includes(r.shopId));
+    const byId=new Map(rows.map(r=>[r.shopId,r]));
+    record.monthly=allIds.map(id=>{const r=byId.get(id);return {shopId:id,status:r?.status||'missing',error:r?.error||(!r?'未生成月累计结果':'')};});
+   }
    // —— 第一轮：全部店铺 ——
    this.phaseText='每日计划（'+day+'）第一轮 · 推广费（'+allIds.length+' 家）';
    const round1P=await this.runRound('promo',allIds,day);
@@ -226,6 +239,7 @@ class Scheduler{
    const failed=record.rows.filter(r=>!isOk(r)).length;
    const manualCount=record.rows.filter(r=>r.promo&&r.promo.status==='manual').length;
    record.summary={total:record.rows.length,okRound1:ok1,okRound2:ok2,failed,manual:manualCount};
+   if(record.monthly)record.summary.monthly={total:record.monthly.length,failed:record.monthly.filter(r=>r.status!=='completed').length};
    record.status=failed?'partial':'done';
    // —— v1.2.84 自动下载当日明细：资金已完成的淘宝/天猫店逐家下载 T-1 单日「下载明细」。
    // 串行执行（资金模块同一时刻只允许一个下载任务），单家失败只记在该行，不影响计划成败；

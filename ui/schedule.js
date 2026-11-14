@@ -74,9 +74,11 @@ window.Scheduler={_n:0,async mount(host){
   $(`#${uid}-history-title`).textContent=list.length?`（${list.length} 条 · ${showAllHistory?'全部显示':`显示最近 ${visible.length} 条`}，点击行展开明细）`:'';
   $(`#${uid}-history`).innerHTML=visible.map(h=>{
    const s=h.summary;
+   const monthlyErrors=(h.monthly||[]).filter(r=>r.status!=='completed').map(r=>((h.rows||[]).find(x=>x.shopId===r.shopId)?.shopName||'店铺')+'：'+(r.error||r.status)).join('；');
    const head=`<div class="sc-rec-head" data-rec="${h.id}"><span class="sc-rec-date" title="这一轮抓的是哪一天的数据（T-1）">${esc(h.date)} 数据</span>
     <span class="sc-rec-sum ${h.status==='failed'?'is-fail':h.status==='partial'?'is-partial':'is-done'}">${h.status==='failed'?'计划失败':s?('一轮成功 '+s.okRound1+' · 二轮成功 '+s.okRound2+' · 仍失败 '+s.failed):(h.status==='running'?'运行中…':'')}</span>
     <span class="sc-rec-time" title="这一轮实际跑完的时间（北京时间）">${bjStamp(h.finishedAt||h.startedAt,false)} 跑完</span>
+    ${s&&s.monthly?`<span class="sc-rec-file" title="${esc(monthlyErrors||'本月累计查询完成')}">推广费月累计 ${s.monthly.total-s.monthly.failed}/${s.monthly.total}${s.monthly.failed?' · 失败 '+s.monthly.failed:''}</span>`:''}
     ${s&&s.detail?`<span class="sc-rec-file" title="计划跑完自动下载的当日明细流水文件">明细 ${s.detail.files} 份${s.detail.noData?' · 暂无数据 '+s.detail.noData:''}${s.detail.failed?' · 失败 '+s.detail.failed:''}</span>`:''}
     ${h.exportFile?`<span class="sc-rec-file" title="${esc(h.exportFile)}">已导出 Excel</span>`:''}</div>`;
    const rows=(h.rows||[]).map(r=>`<tr><td>${esc(r.shopName)}</td><td>${PLATFORM[r.platform]||esc(r.platform)}</td>

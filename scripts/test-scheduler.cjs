@@ -48,7 +48,7 @@ test('到点触发：enabled + 时刻已到 + 当天没跑 → 自动抓 T-1；�
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  // 2026-11-09 北京时间 08:31（UTC 00:31）
  const now=()=>Date.UTC(2026,10,9,0,31,0);
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30'});
  service.setPreset(()=>{service.data.results.push({runId:'r1',shopId:'t1',start:'2026-11-08',end:'2026-11-08',status:'completed',amountCents:10000});});
  fund.setPreset(()=>{fund.data.results.push({runId:'f1',shopId:'t1',month:'2026-11',day:'2026-11-08',status:'completed',incomeCents:1,expenseCents:1,balanceCents:1,incomeCount:0,expenseCount:0});});
@@ -70,7 +70,7 @@ test('时刻未到不触发；晚开补跑：时刻已过但当天没跑照样�
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,8,23,0,0); // 北京 07:00，设定 08:30 未到
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30'});
  await s.tick();
  assert.equal(service.calls.length,0,'时刻未到不应触发');
@@ -85,7 +85,7 @@ test('模块忙顺延：到点时正在手动抓取 → 不触发不记 lastRun�
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0);
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30'});
  service.busy=true;
  await s.tick();
@@ -101,7 +101,7 @@ test('两轮重试：第一轮 t2 失败 → 第二轮只跑失败店铺；汇�
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0);
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30',autoExport:false});
  // 按轮次控制成败：第 1 轮 t1 成功、t2/j1 失败；第 2 轮 t2 成功、j1 仍失败
  let promoRound=0,fundRound=0;
@@ -146,7 +146,7 @@ test('自动导出 Excel：跑完在导出目录生成 每日计划_日期.xlsx�
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0);
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30',autoExport:true});
  service.setPreset(input=>{for(const id of input.shopIds)service.data.results.push({runId:'r'+id,shopId:id,start:'2026-11-08',end:'2026-11-08',status:'completed',amountCents:12345});});
  fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f'+id,shopId:id,month:'2026-11',day:'2026-11-08',status:'completed',incomeCents:10000,expenseCents:2000,balanceCents:99900,incomeCount:3,expenseCount:1});});
@@ -170,7 +170,7 @@ test('未启用计划：tick 不做任何事；runNow 手动触发不受 enabled
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0);
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  await s.tick();
  assert.equal(service.calls.length,0,'未启用不应自动触发');
  service.setPreset(input=>{for(const id of input.shopIds)service.data.results.push({runId:'r'+id,shopId:id,start:'2026-11-08',end:'2026-11-08',status:'completed',amountCents:1});});
@@ -184,7 +184,7 @@ test('v1.2.91 二轮含「无/财务号」：completed 但子账户含 none/fina
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0);
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30',autoExport:false});
  // 第一轮：t1 正常成功；t2 顶层 completed 但子账户含 finance-only+none（旧版会漏掉这家）；j1 失败
  service.setPreset(input=>{
@@ -246,7 +246,7 @@ test('v1.2.69 runRound 引用替换回归：save() 整体替换 this.data 后仍
  }
  const service=realLikeService(SHOPS),fund=realLikeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0);
- const s=new Scheduler({service,fund,root,now:()=>Date.UTC(2026,10,9,0,31,0),netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now:()=>Date.UTC(2026,10,9,0,31,0),netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30',autoExport:false});
  await s.tick();
  const record=s.data.history[s.data.history.length-1];
@@ -261,7 +261,7 @@ test('v1.2.69 waitNetworkReady：探测通过立即开跑；持续失败最多�
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  let probes=0;
- const s=new Scheduler({service,fund,root,now:()=>Date.UTC(2026,10,9,0,31,0),
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now:()=>Date.UTC(2026,10,9,0,31,0),
   netProbe:async()=>{probes++;return probes>=3;},netRetryMs:10});
  s.configure({enabled:true,time:'08:30',autoExport:false});
  service.setPreset(input=>{for(const id of input.shopIds)service.data.results.push({runId:'r'+probes+'-'+id,shopId:id,start:'2026-11-08',end:'2026-11-08',status:'completed',amountCents:1});});
@@ -271,7 +271,7 @@ test('v1.2.69 waitNetworkReady：探测通过立即开跑；持续失败最多�
  assert.equal(service.calls.length,1,'网络就绪后正常开跑');
  // 始终失败：10 次探测后照常执行（不阻塞当天计划）
  let always=0;
- const s2=new Scheduler({service,fund,root,now:()=>Date.UTC(2026,10,9,0,31,0),
+ const s2=new Scheduler({refreshMonthly:false,service,fund,root,now:()=>Date.UTC(2026,10,9,0,31,0),
   netProbe:async()=>{always++;return false;},netRetryMs:10});
  s2.data.lastRun=null;
  await s2.tick();
@@ -300,7 +300,7 @@ function greenEnv(){
  const root=tempRoot();
  const service=fakeService(SHOPS),fund=fakeFund(SHOPS);
  const now=()=>Date.UTC(2026,10,9,0,31,0); // 北京 2026-11-09 08:31 → T-1 = 11-08
- const s=new Scheduler({service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
+ const s=new Scheduler({refreshMonthly:false,service,fund,root,now,netProbe:async()=>true,netRetryMs:10});
  s.configure({enabled:true,time:'08:30',autoExport:false});
  service.setPreset(input=>{for(const id of input.shopIds)service.data.results.push({runId:'r'+id,shopId:id,start:'2026-11-08',end:'2026-11-08',status:'completed',amountCents:100});});
  fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f'+id,shopId:id,month:'2026-11',day:'2026-11-08',status:'completed',incomeCents:100,expenseCents:0,balanceCents:100,incomeCount:1,expenseCount:0});});
@@ -354,4 +354,21 @@ test('Excel 明细文件列：下载成功的店显示份数，京东店留空',
  assert.equal(String(t1[13]),'1 个','资金完成店显示份数');
  const j=rows.find(r=>r[1]==='京东一号店');
  assert.equal(String(j[13]||''),'','京东店该列留空');
+});
+
+test('每日计划先更新月累计、再抓单日；累计失败单独记录，单日结果仍完整',async()=>{
+ const root=tempRoot(),service=fakeService(SHOPS),fund=fakeFund(SHOPS);let n=0;
+ service.setPreset(input=>{n++;for(const id of input.shopIds)service.data.results.push({runId:'p'+n,shopId:id,start:input.start,end:input.end,status:n===1&&id==='t2'?'failed':'completed',error:n===1&&id==='t2'?'需要验证':'',amountCents:n===1&&id==='t2'?null:100});});
+ fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f1',shopId:id,month:input.months.start,day:input.day,status:'completed'});});
+ const s=new Scheduler({service,fund,root,netProbe:async()=>true});s.configure({autoExport:false,autoDetailDownload:false});
+ const record=await s.executePlan('2026-11-13','2026-11-14');
+ assert.deepEqual(service.calls.map(x=>[x.start,x.end]),[['2026-11-01','2026-11-13'],['2026-11-13','2026-11-13']]);
+ assert.deepEqual(record.summary.monthly,{total:3,failed:1});assert.equal(record.monthly.find(x=>x.shopId==='t2').error,'需要验证');assert.equal(record.summary.failed,0);
+});
+test('计划日期为月初第一天时，单日查询同时就是月累计，不重复查询',async()=>{
+ const root=tempRoot(),service=fakeService(SHOPS),fund=fakeFund(SHOPS);
+ service.setPreset(input=>{for(const id of input.shopIds)service.data.results.push({runId:'p1',shopId:id,start:input.start,end:input.end,status:'completed',amountCents:100});});
+ fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f1',shopId:id,month:input.months.start,day:input.day,status:'completed'});});
+ const s=new Scheduler({service,fund,root,netProbe:async()=>true});s.configure({autoExport:false,autoDetailDownload:false});await s.executePlan('2026-11-01','2026-11-02');
+ assert.equal(service.calls.length,1);assert.equal(service.calls[0].start,'2026-11-01');assert.equal(service.calls[0].end,'2026-11-01');
 });
