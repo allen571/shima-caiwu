@@ -103,19 +103,20 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   // 输出顺序 = 该店首次出现顺序（Map 按首次 set 的位置迭代）
   const noShopLast=all.filter(r=>!r.shopId&&r.runId===last);
   const lastIdx=new Map();
-  for(let i=0;i<all.length;i++){const r=all[i];if(!r.shopId)continue;lastIdx.set(r.shopId,i);}
+  for(let i=0;i<all.length;i++){const r=all[i];if(!r.shopId)continue;lastIdx.set(JSON.stringify([r.shopId,r.start||null,r.end||null]),i);}
   const latest=[...lastIdx.values()].map(i=>all[i]);
   const now=Date.now(),carried=[];const carriedSeen=new Set();
   for(const r of latest){
    // 只有「最新一行本身是近期（今昨两天）」时才回显上一轮成功，避免历史失败行带出一条孤立的旧成功行
    if(!r.shopId||!['failed','manual','paused'].includes(r.status)||!rowRecent(r,now))continue;
-   for(let i=all.length-1;i>=0;i--){const o=all[i];if(o.shopId===r.shopId&&o.status==='completed'&&!carriedSeen.has(r.shopId)){carriedSeen.add(r.shopId);carried.push({...o,carriedOver:true});break;}}
+   for(let i=all.length-1;i>=0;i--){const o=all[i];if(o.shopId===r.shopId&&o.status==='completed'&&o.start===r.start&&o.end===r.end&&!carriedSeen.has(JSON.stringify([r.shopId,r.start||null,r.end||null]))){carriedSeen.add(JSON.stringify([r.shopId,r.start||null,r.end||null]));carried.push({...o,carriedOver:true});break;}}
   }
   const rows=[...carried,...noShopLast,...latest].map(r=>this.writeFailure&&['running','queued'].includes(r.status)?{...r,status:'paused',error:this.lastError,amountCents:null}:r);
   // v1.2.87：近期行进表，历史行单独放 stale（默认不显示，供 UI「显示历史记录」开关）
   // v1.2.87：近期行进表，历史行单独放 stale（默认不显示，供 UI「显示历史记录」开关）。
   // 最新一轮的行一律保留（用户可能故意查很早的自定义区间），其余按今昨两天判定。
-  const keep=r=>r.carriedOver||(!!last&&r.runId===last)||rowRecent(r,now);
+  const latestRange=all.at(-1);
+  const keep=r=>(!latestRange||r.start===latestRange.start&&r.end===latestRange.end)&&(r.carriedOver||(!!last&&r.runId===last)||rowRecent(r,now));
   const recent=rows.filter(keep),stale=rows.filter(r=>!keep(r));
   const manual=recent.filter(r=>r.status==='manual');const loginChecks=this.data.loginChecks||{};return {shops:this.data.shops.map(({secret,...s})=>({...s,hasPassword:!!secret,loginStatus:this.loginShopId===s.id?'登录中':s.loginNeedsAttention?'需确认登录':s.loginConfirmedAt?'已保存登录':'未确认登录',checkStatus:(loginChecks[s.id]&&loginChecks[s.id].status)||'',checkAt:(loginChecks[s.id]&&loginChecks[s.id].at)||''})),results:recent,stale,concurrency:this.concurrency,activeCount:this.activeQueries.size,busy:this.busy,checkBusy:!!this.checkBusy,loginBusy:!!this.loginBusy,error:this.lastError||'',phase:this.phase||'',current:this.current||null,manual:{count:manual.length,shops:manual.map(r=>({shopId:r.shopId,shopName:r.shopName,reason:r.manualReason||r.error||''}))}};}
  save(data){

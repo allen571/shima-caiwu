@@ -21,7 +21,7 @@ function fundSetup(t){
  const fund=new FundSummary({autoDownload:false,host:{data:{shops:[{id:'t1',name:'淘一号',platform:'taobao'},{id:'t2',name:'淘二号',platform:'tmall'}]},busy:false,loginBusy:false},root,downloads:root});
  return fund;
 }
-const rowOf=(shopId,runId,status,amountCents=null)=>({runId,shopId,status,amountCents,updatedAt:'2026-11-11T03:00:00Z'});
+const rowOf=(shopId,runId,status,amountCents=null)=>({runId,shopId,status,amountCents,updatedAt:new Date().toISOString()});
 
 test('推广费合并显示：二轮新 runId 不再挤掉一轮成功行',t=>{
  const s=promoSetup(t);
@@ -103,4 +103,64 @@ test('资金结果表：11-04 的老失败行隐藏，今天的完成行显示',
  assert.deepEqual(st.results.map(r=>r.shopId),['t2'],'只显示今天的单日完成行');
  assert.equal(st.stale.length,1);
  assert.equal(st.stale[0].shopId,'t1');
+});
+
+test('推广费切换日期后不把其他日期的成功金额带入本轮结果',t=>{
+ const s=promoSetup(t),[A,B]=s.data.shops.map(x=>x.id);
+ s.save({...s.data,results:[
+  {...rowOf(A,'old','completed',100),start:'2026-11-01',end:'2026-11-11'},
+  {...rowOf(B,'old','completed',200),start:'2026-11-01',end:'2026-11-11'},
+  {...rowOf(A,'new','failed'),start:'2026-11-01',end:'2026-11-12'}
+ ]});
+ assert.deepEqual(s.state().results.map(r=>[r.shopId,r.status]),[[A,'failed']]);
+ assert.equal(s.state().stale.length,2);
+});
+test('每日计划结果展示当天数据，不继承其他日期或整月成功结果',t=>{
+ const fund=fundSetup(t),now=new Date().toISOString();
+ fund.save({version:1,exportFolder:'',results:[
+  {runId:'old',shopId:'t1',month:'2026-11',status:'completed',incomeCents:100,updatedAt:now},
+  {runId:'old',shopId:'t2',month:'2026-11',day:'2026-11-12',status:'completed',incomeCents:200,updatedAt:now},
+  {runId:'new',shopId:'t1',month:'2026-11',day:'2026-11-13',status:'failed',updatedAt:now}
+ ]});
+ assert.deepEqual(fund.state().results.map(r=>[r.shopId,r.status,r.day]),[['t1','failed','2026-11-13']]);
+});
+
+test('资金多月结果保留本轮月份，其他月份进入历史',t=>{
+ const fund=fundSetup(t),now=new Date().toISOString();
+ fund.save({version:1,exportFolder:'',results:[
+  {runId:'old',shopId:'t2',month:'2026-09',status:'completed',incomeCents:10,updatedAt:'2026-10-01T00:00:00.000Z'},
+  {runId:'new',shopId:'t1',month:'2026-10',status:'completed',incomeCents:20,updatedAt:now},
+  {runId:'new',shopId:'t1',month:'2026-11',status:'completed',incomeCents:30,updatedAt:now}
+ ]});
+ assert.deepEqual(fund.state().results.map(r=>r.month),['2026-10','2026-11']);
+ assert.equal(fund.state().stale[0].month,'2026-09');
+});
+
+test('每日计划第二轮只重跑失败店时，资金页保留第一轮同日成功',t=>{
+ const fund=fundSetup(t),now=new Date().toISOString(),day='2026-11-13';
+ fund.save({version:1,exportFolder:'',results:[
+  {runId:'first',shopId:'t1',month:'2026-11',day,status:'completed',incomeCents:100,updatedAt:now},
+  {runId:'first',shopId:'t2',month:'2026-11',day,status:'failed',updatedAt:now},
+  {runId:'retry',shopId:'t2',month:'2026-11',day,status:'completed',incomeCents:200,updatedAt:now}
+ ]});
+ assert.deepEqual(fund.state().results.map(r=>[r.shopId,r.status,r.day]),[['t1','completed',day],['t2','completed',day]]);
+});
+test('推广费历史显示同店不同日期的旧结果',t=>{
+ const s=promoSetup(t),[A]=s.data.shops.map(x=>x.id);
+ s.save({...s.data,results:[
+  {...rowOf(A,'old','completed',100),start:'2026-11-01',end:'2026-11-11'},
+  {...rowOf(A,'new','completed',200),start:'2026-11-01',end:'2026-11-12'}
+ ]});
+ assert.equal(s.state().results[0].amountCents,200);
+ assert.equal(s.state().stale[0].amountCents,100);
+});
+
+test('同日多月部分重跑仍保留其他月份，按各行月份显示',t=>{
+ const fund=fundSetup(t),now=new Date().toISOString();
+ fund.save({version:1,exportFolder:'',results:[
+  {runId:'first',shopId:'t1',month:'2026-10',status:'completed',incomeCents:10,updatedAt:now},
+  {runId:'first',shopId:'t1',month:'2026-11',status:'failed',updatedAt:now},
+  {runId:'retry',shopId:'t1',month:'2026-11',status:'completed',incomeCents:20,updatedAt:now}
+ ]});
+ assert.deepEqual(fund.state().results.map(r=>[r.month,r.incomeCents]),[['2026-10',10],['2026-11',20]]);
 });

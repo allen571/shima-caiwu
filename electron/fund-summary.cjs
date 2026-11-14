@@ -653,20 +653,21 @@ class FundSummary{
   //（carriedOver 标注），完成数与合计仍按「每店最新已获取」计算。落盘数据不改动。
   const all=this.data.results||[];
   const lastIdx=new Map();
-  for(let i=0;i<all.length;i++){const r=all[i];if(!r.shopId)continue;lastIdx.set(r.shopId,i);}
+  for(let i=0;i<all.length;i++){const r=all[i];if(!r.shopId)continue;lastIdx.set(JSON.stringify([r.shopId,r.month,r.day||null]),i);}
   const latest=[...lastIdx.values()].map(i=>all[i]);
   const now=Date.now(),carried=[];const carriedSeen=new Set();
   for(const r of latest){
    // 同推广费：只有最新一行是近期的失败/暂停才回显上一轮结果，避免孤立旧行
    if(!r.shopId||!['failed','manual','paused'].includes(r.status)||!rowRecent(r,now))continue;
-   for(let i=all.length-1;i>=0;i--){const o=all[i];if(o.shopId===r.shopId&&o.status==='completed'&&!carriedSeen.has(r.shopId)){carriedSeen.add(r.shopId);carried.push({...o,carriedOver:true});break;}}
+   for(let i=all.length-1;i>=0;i--){const o=all[i];if(o.shopId===r.shopId&&o.status==='completed'&&o.month===r.month&&(o.day||null)===(r.day||null)&&!carriedSeen.has(JSON.stringify([r.shopId,r.month,r.day||null]))){carriedSeen.add(JSON.stringify([r.shopId,r.month,r.day||null]));carried.push({...o,carriedOver:true});break;}}
   }
   // v1.2.87：近期行（今天/昨天）进表，更早的失败/暂停记录归入 stale，默认不显示。
   // 最新一轮的行一律保留（允许用户查很久以前的自定义区间）。
   const allRows=[...carried,...latest],lastRun=all.at(-1)?.runId;
-  const keep=r=>r.carriedOver||(!!lastRun&&r.runId===lastRun)||rowRecent(r,now);
+  const latestDay=all.at(-1)?.day||null;
+  const keep=r=>(r.day||null)===latestDay&&(r.carriedOver||(!!lastRun&&r.runId===lastRun)||rowRecent(r,now));
   const recent=allRows.filter(keep),stale=allRows.filter(r=>!keep(r));
-  return {results:recent,stale,busy:this.busy,downloadBusy:this.downloadBusy,diagnosing:this.diagnosing,manual:this.manual,manualPending:this.manualPendingInfo,phase:this.busy||this.downloadBusy||this.diagnosing?this.phaseText:'',error:this.busy||this.downloadBusy?'':this.lastError,exportFolder:this.exportFolder(),exportFolderCustom:!!this.data.exportFolder,autoDownload:this.autoDownload(),batchDone:[...this.batchDone],shops:this.host.data.shops.map(({secret,...s})=>({id:s.id,name:s.name,platform:s.platform||'taobao',username:s.username,loginConfirmedAt:s.loginConfirmedAt||null,loginNeedsAttention:!!s.loginNeedsAttention}))};}
+  return {results:recent,stale,busy:this.busy,downloadBusy:this.downloadBusy,diagnosing:this.diagnosing,manual:this.manual,manualPending:this.manualPendingInfo,phase:this.busy||this.downloadBusy||this.diagnosing?this.phaseText:'',error:this.busy||this.downloadBusy?'':this.lastError,exportFolder:this.exportFolder(),exportFolderCustom:!!this.data.exportFolder,autoDownload:this.autoDownload(),batchDone:[...this.batchDone],shops:this.host.data.shops.map(({secret,...s})=>({id:s.id,name:s.name,platform:s.platform||'taobao',username:s.username,loginConfirmedAt:s.loginConfirmedAt||null,loginNeedsAttention:!!s.loginNeedsAttention,checkStatus:this.host.data.loginChecks?.[s.id]?.status||'',checkAt:this.host.data.loginChecks?.[s.id]?.at||''}))};}
  async clickText(win,target){
   // 菜单可能在 iframe 里：跨所有子 frame 尝试点击文本
   const wc=this.host.assertWindow(win),frames=(wc&&wc.mainFrame&&wc.mainFrame.framesInSubtree)||[];
