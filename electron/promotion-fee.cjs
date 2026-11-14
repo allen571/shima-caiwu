@@ -77,7 +77,7 @@ function inspect(){
  return {url:u.origin+u.pathname+u.hash,start:q.get('cashStart'),end:q.get('cashEnd'),trade:q.get('trade'),amount,loading,content:content.slice(0,1400),controls,accountLabels:[...document.querySelectorAll('a,span,div')].filter(e=>visible(e)&&!scope.contains(e)&&text(e).length<150).map(text).filter(Boolean),identityLabels:[...document.querySelectorAll('[class*=shopName],[class*=shop-name],[class*=nickName],[class*=nick-name],[data-shop-name]')].filter(visible).map(text).filter(Boolean),dateType:controls.some(v=>v==='交易日期')?'交易日期':null};
 }
 class PromotionFee{
- constructor({root,BrowserWindow,safeStorage,hidden=false,adapter=null,singleShop=false,backgroundOnly=false,desktop=null}){Object.assign(this,{root,BrowserWindow,safeStorage,hidden,adapter,singleShop,backgroundOnly,desktop});this.queryContext=new AsyncLocalStorage();this.activeQueries=new Map();this.file=path.join(root,'promotion-fee.json');this.logFile=path.join(root,'promotion-fee.log');this.manualWaitMs=300000;this.interactive=false;this.windows=new Map();this.authAttempts=new Set();this.busy=false;this.stopped=false;this.writeFailure=false;this.loginCaptures=0;this.loginCapturedShops=new Set();this.data={version:1,shops:[],results:[]};try{this.data=JSON.parse(fs.readFileSync(this.file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw Error('推广费记录无法读取，未覆盖原文件');}if(this.data.loginAttempts!==undefined&&(!this.data.loginAttempts||typeof this.data.loginAttempts!=='object'||Array.isArray(this.data.loginAttempts)))throw Error('登录尝试检查点无法读取，未覆盖原记录');
+ constructor({root,BrowserWindow,safeStorage,hidden=false,adapter=null,singleShop=false,backgroundOnly=false,desktop=null}){Object.assign(this,{root,BrowserWindow,safeStorage,hidden,adapter,singleShop,backgroundOnly,desktop});this.queryContext=new AsyncLocalStorage();this.activeQueries=new Map();this.file=path.join(root,'promotion-fee.json');this.logFile=path.join(root,'promotion-fee.log');this.manualWaitMs=300000;this.interactive=false;this.windows=new Map();this.manualLoginWatchers=new Map();this.authAttempts=new Set();this.busy=false;this.stopped=false;this.writeFailure=false;this.loginCaptures=0;this.loginCapturedShops=new Set();this.data={version:1,shops:[],results:[]};try{this.data=JSON.parse(fs.readFileSync(this.file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw Error('推广费记录无法读取，未覆盖原文件');}if(this.data.loginAttempts!==undefined&&(!this.data.loginAttempts||typeof this.data.loginAttempts!=='object'||Array.isArray(this.data.loginAttempts)))throw Error('登录尝试检查点无法读取，未覆盖原记录');
 // v1.2.81：并行账号数默认 4→8（用户 2026-11-10 确认：160+ 店铺，4 路要跑两小时以上）。
 // 只做一次性迁移，且不覆盖用户手动调低的值（≥6 视为主动设置）。
 this.checkBusy=false;this.data.loginChecks=this.data.loginChecks||{};
@@ -118,7 +118,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   const latestRange=all.at(-1);
   const keep=r=>(!latestRange||r.start===latestRange.start&&r.end===latestRange.end)&&(r.carriedOver||(!!last&&r.runId===last)||rowRecent(r,now));
   const recent=rows.filter(keep),stale=rows.filter(r=>!keep(r));
-  const manual=recent.filter(r=>r.status==='manual');const loginChecks=this.data.loginChecks||{};return {shops:this.data.shops.map(({secret,...s})=>({...s,hasPassword:!!secret,loginStatus:this.loginShopId===s.id?'登录中':s.loginNeedsAttention?'需确认登录':s.loginConfirmedAt?'已保存登录':'未确认登录',checkStatus:(loginChecks[s.id]&&loginChecks[s.id].status)||'',checkAt:(loginChecks[s.id]&&loginChecks[s.id].at)||''})),results:recent,stale,concurrency:this.concurrency,activeCount:this.activeQueries.size,busy:this.busy,checkBusy:!!this.checkBusy,loginBusy:!!this.loginBusy,error:this.lastError||'',phase:this.phase||'',current:this.current||null,manual:{count:manual.length,shops:manual.map(r=>({shopId:r.shopId,shopName:r.shopName,reason:r.manualReason||r.error||''}))}};}
+  const manual=recent.filter(r=>r.status==='manual');const loginChecks=this.data.loginChecks||{};return {shops:this.data.shops.map(({secret,...s})=>({...s,hasPassword:!!secret,loginStatus:this.loginShopId===s.id?'登录中':s.loginNeedsAttention?'需确认登录':s.loginConfirmedAt?'已保存登录':'未确认登录',checkStatus:(loginChecks[s.id]&&loginChecks[s.id].status)||'',checkAt:(loginChecks[s.id]&&loginChecks[s.id].at)||''})),results:recent,stale,concurrency:this.concurrency,activeCount:this.activeQueries.size,busy:this.busy,checkBusy:!!this.checkBusy,loginBusy:!!this.loginBusy,manualWatchCount:this.manualLoginWatchers.size,error:this.lastError||'',phase:this.phase||'',current:this.current||null,manual:{count:manual.length,shops:manual.map(r=>({shopId:r.shopId,shopName:r.shopName,reason:r.manualReason||r.error||''}))}};}
  save(data){
   const write=()=>{fs.mkdirSync(this.root,{recursive:true});fs.writeFileSync(this.file+'.tmp',JSON.stringify(data),{mode:0o600});fs.renameSync(this.file+'.tmp',this.file);this.data=data;};
   const fail=e=>{this.writeFailure=true;this.lastError='推广费记录保存失败，已停止后续查询';this.log('save-fail','熔断：'+(e&&e.code||'')+' '+(e&&e.message||e));throw Error('本机保存失败，已停止后续查询（推广费记录保存失败：'+(e&&e.message||e)+'，原因已记入 promotion-fee.log）');};
@@ -259,6 +259,41 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   }return best;
  }
  showProblem(win){if(this.hidden||this.backgroundOnly||this.stopped||this.writeFailure||!win||win.isDestroyed())return false;try{return require('./promotion-fee-front.cjs').bringToFront(win);}catch(error){this.windowAttentionError=error.message;return false;}}
+ stopManualLoginWatch(shopId){
+  const watch=this.manualLoginWatchers?.get(shopId);
+  if(!watch)return;
+  clearTimeout(watch.timer);this.manualLoginWatchers.delete(shopId);
+ }
+ watchManualLogin(shop,win){
+  if(this.hidden||this.backgroundOnly||this.stopped||this.writeFailure||!['taobao','tmall'].includes(shop.platform||'taobao'))return;
+  this.stopManualLoginWatch(shop.id);
+  const watch={win,timer:null};this.manualLoginWatchers.set(shop.id,watch);
+  const valid=()=>{
+   const current=this.data.shops.find(s=>s.id===shop.id);
+   return this.manualLoginWatchers.get(shop.id)===watch&&!this.hidden&&!this.backgroundOnly&&!this.stopped&&!this.writeFailure&&!this.checkBusy&&this.loginShopId!==shop.id&&!this.activeQueries.has(shop.id)&&this.windows.get(shop.id)===win&&!win.isDestroyed()&&!win.webContents.isDestroyed()&&current?.sessionKey===shop.sessionKey&&current.username===shop.username&&!!current.boundShop;
+  };
+  const schedule=()=>{watch.timer=setTimeout(poll,this.manualWatchIntervalMs||1000);watch.timer.unref?.();};
+  const poll=async()=>{
+   if(!valid()){if(this.manualLoginWatchers.get(shop.id)===watch)this.stopManualLoginWatch(shop.id);return;}
+   try{
+    const state=await this.authState(win);
+    if(!valid()){if(this.manualLoginWatchers.get(shop.id)===watch)this.stopManualLoginWatch(shop.id);return;}
+    const current=this.data.shops.find(s=>s.id===shop.id);
+    if(state.status==='logged_in'&&state.shopName&&state.shopName.normalize('NFKC').trim()===current.boundShop.normalize('NFKC').trim()){
+     await this.saveLoginSession(current,win,()=>{if(!valid())throw Error('账号或窗口状态已变化');});
+     if(!valid()){if(this.manualLoginWatchers.get(shop.id)===watch)this.stopManualLoginWatch(shop.id);return;}
+     win.promotionKeepAlive=true;win.hide();this.stopManualLoginWatch(shop.id);
+     this.log('manual-login-confirmed',current.name);
+     return;
+    }
+   }catch(error){
+    if(this.manualLoginWatchers.get(shop.id)===watch){this.log('manual-login-watch-error',error.message);this.stopManualLoginWatch(shop.id);}
+    return;
+   }
+   if(valid())schedule();else if(this.manualLoginWatchers.get(shop.id)===watch)this.stopManualLoginWatch(shop.id);
+  };
+  schedule();
+ }
  async attention(shop,win,message,ledger=false,allowSubmit=false){
   // v1.2.81（2026-11-10 财务反馈「跑一下停一下，要点暂停再点抓取」）：旧实现任何一家店遇到
   // 滑块/协议都会在这里原地等 15 分钟，并发 4 时 4 家一卡，后面 150 多家全排队。
@@ -359,6 +394,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
  markLoginRequired(shop){this.check();const current=this.shop(shop.id);if(!current.loginNeedsAttention)this.save({...this.data,shops:this.data.shops.map(s=>s.id===shop.id?{...s,loginNeedsAttention:true}:s)});}
  // 提前登录和查询只使用这一条身份核验、会话落盘与状态确认路径。
  async authenticate(shop,win,{revalidate=false}={}){
+  this.stopManualLoginWatch(shop.id);
   this.check();this.phase='正在确认 '+shop.name+' 的登录状态';let identity;
   if(shop.platform==='jd'){
    this.jdAdapter ||= new(require('./promotion-fee-jd.cjs').JdPromotionFee)({host:this});
@@ -374,10 +410,20 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
  async flushSession(win){
   try{const ses=this.assertWindow(win).session;ses.flushStorageData();await ses.cookies.flushStore();}catch(error){}
  }
- async saveLoginSession(shop,win){
-  this.check();const ses=this.assertWindow(win).session;ses.flushStorageData();await ses.cookies.flushStore();this.check();
+ async saveLoginSession(shop,win,guard){
+  this.check();const ses=this.assertWindow(win).session;
+  try{ses.flushStorageData();await ses.cookies.flushStore();}
+  catch(error){
+   if(this.stopped||win.isDestroyed()||win.webContents.isDestroyed())throw error;
+   if(guard)guard();
+   this.writeFailure=true;this.lastError='账号会话保存失败，已停止后续查询';
+   this.log('session-save-fail',error.message);
+   throw Error(this.lastError+'：'+error.message);
+  }
+  this.check();if(guard)guard();
   const loginAttempts={...this.data.loginAttempts};delete loginAttempts[shop.sessionKey];
-  this.save({...this.data,loginAttempts,shops:this.data.shops.map(s=>s.id===shop.id?{...s,loginConfirmedAt:new Date().toISOString(),loginNeedsAttention:false}:s)});
+  const loginChecks={...this.data.loginChecks};delete loginChecks[shop.id];
+  this.save({...this.data,loginAttempts,loginChecks,shops:this.data.shops.map(s=>s.id===shop.id?{...s,loginConfirmedAt:new Date().toISOString(),loginNeedsAttention:false}:s)});
   // 仅持久提交成功后清内存，避免身份错配、取消或保存失败被当成成功。
   this.authAttempts.delete(shop.sessionKey);this.jdAdapter?.attempted?.delete(shop.sessionKey);
  }
@@ -537,10 +583,10 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
      // 无 accounts（淘宝/千牛路径）保持原规则：金额必须是合法非负整数
      const hasAccounts=Array.isArray(result.accounts)&&result.accounts.length>0,completed=hasAccounts?result.accounts.filter(a=>a.status==='completed'):[];
      const moneyOk=hasAccounts?completed.every(a=>Number.isSafeInteger(a.amountCents)&&a.amountCents>=0)&&(completed.length?Number.isSafeInteger(result.amountCents)&&result.amountCents===completed.reduce((n,a)=>n+a.amountCents,0):result.amountCents===null):(Number.isSafeInteger(result.amountCents)&&result.amountCents>=0);
-     if(result.shopName!==this.shop(shop.id).name||(result.status==='failed'&&result.amountCents!==null)||(result.status!=='failed'&&!moneyOk))throw Error('店铺或金额核对失败');patch({...result,status:result.status||'completed'});this.log('shop-done',shop.name+' '+(Date.now()-startedAt)+'ms '+(result.amountCents??''));}catch(error){if(this.writeFailure)return;const manual=error.code==='NEEDS_MANUAL';const pbWin=this.windows.get(shop.id);try{if(pbWin&&!pbWin.isDestroyed()&&(this.stopped||this.hidden||this.backgroundOnly))pbWin.hide();else if(pbWin&&!pbWin.isDestroyed()&&!manual)this.showProblem(pbWin);}catch{}this.log(manual?'shop-manual':'shop-failed',shop.name+' '+(Date.now()-startedAt)+'ms | '+(error.reason||'')+' | '+error.message);patch({status:this.stopped?'paused':manual?'manual':'failed',error:/Render frame was disposed|frame was detached|Execution context was destroyed/i.test(error.message)?'页面跳转时读取中断，请补查该店铺':/Object has been destroyed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message,amountCents:null,...(manual?{manualReason:error.reason||'manual'}:{})});}}finally{this.activeQueries.delete(shop.id);this.releaseCompletedWindow(shop.id,runId);}});}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,shops.length)},()=>worker()));const tally={};for(const r of this.data.results)if(r.runId===runId)tally[r.status]=(tally[r.status]||0)+1;this.log('run-end',JSON.stringify(tally));const failed=settled.find(r=>r.status==='rejected');if(failed)throw failed.reason;
+     if(result.shopName!==this.shop(shop.id).name||(result.status==='failed'&&result.amountCents!==null)||(result.status!=='failed'&&!moneyOk))throw Error('店铺或金额核对失败');patch({...result,status:result.status||'completed'});this.log('shop-done',shop.name+' '+(Date.now()-startedAt)+'ms '+(result.amountCents??''));}catch(error){if(this.writeFailure)return;const manual=error.code==='NEEDS_MANUAL';const pbWin=this.windows.get(shop.id);try{if(pbWin&&!pbWin.isDestroyed()&&(this.stopped||this.hidden||this.backgroundOnly))pbWin.hide();else if(pbWin&&!pbWin.isDestroyed()&&!manual)this.showProblem(pbWin);}catch{}this.log(manual?'shop-manual':'shop-failed',shop.name+' '+(Date.now()-startedAt)+'ms | '+(error.reason||'')+' | '+error.message);patch({status:this.stopped?'paused':manual?'manual':'failed',error:/Render frame was disposed|frame was detached|Execution context was destroyed/i.test(error.message)?'页面跳转时读取中断，请补查该店铺':/Object has been destroyed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message,amountCents:null,...(manual?{manualReason:error.reason||'manual'}:{})});if(manual&&pbWin&&!pbWin.isDestroyed())this.watchManualLogin(shop,pbWin);}}finally{this.activeQueries.delete(shop.id);this.releaseCompletedWindow(shop.id,runId);}});}};const settled=await Promise.allSettled(Array.from({length:Math.min(this.concurrency,shops.length)},()=>worker()));const tally={};for(const r of this.data.results)if(r.runId===runId)tally[r.status]=(tally[r.status]||0)+1;this.log('run-end',JSON.stringify(tally));const failed=settled.find(r=>r.status==='rejected');if(failed)throw failed.reason;
  if(!this.writeFailure)this.save({...this.data,results:this.data.results.map(r=>r.runId===runId&&['queued','running'].includes(r.status)?{...r,status:'paused',error:'尚未查询'}:r)});}
  async retry(){if(this.busy||this.loginBusy||this.accountTransferBusy)throw Error('查询或登录正在运行');if(this.writeFailure)throw Error('本机保存失败，已停止后续查询');const suspect=r=>Array.isArray(r.accounts)&&r.accounts.some(a=>a.status==='none'||a.status==='finance-only');const rows=this.state().results.filter(r=>!r.accountChanged&&this.data.shops.some(s=>s.id===r.shopId)&&(r.status!=='completed'||suspect(r)));if(!rows.length)throw Error('没有可补查的已配置账号');const dates=range(rows[0]),runId=rows[0].runId,shops=rows.map(r=>this.shop(r.shopId));this.interactive=false;this.log('retry-start',shops.length+' 家');this.save({...this.data,results:this.data.results.map(r=>{if(r.runId!==runId||!shops.some(s=>s.id===r.shopId))return r;if(r.status!=='completed')return {...r,status:'queued',error:'',amountCents:null};return suspect(r)?{...r,status:'queued',error:'',amountCents:null,accounts:r.accounts.filter(a=>a.status==='completed')}:r;})});this.busy=true;this.stopped=false;this.lastError='';this.work=this.run(shops,dates,runId).catch(error=>{this.lastError=error.message;}).finally(()=>{this.busy=false;this.current=null;this.phase='';});return this.state();}
- pause(){this.stopped=true;return this.state();}
- close(){this.stopped=true;for(const w of [...this.windows.values(),...(this.problemWindows||[])])if(!w.isDestroyed())w.destroy();}
+ pause(){this.stopped=true;for(const id of this.manualLoginWatchers?.keys()||[])this.stopManualLoginWatch(id);return this.state();}
+ close(){this.stopped=true;for(const id of this.manualLoginWatchers?.keys()||[])this.stopManualLoginWatch(id);for(const w of [...this.windows.values(),...(this.problemWindows||[])])if(!w.isDestroyed())w.destroy();}
 }
 module.exports={PLATFORM_NAMES,PromotionFee,inspect,cents,range,trusted,displayedRange,dateBounds,shiftDate,bjToday,manualError};

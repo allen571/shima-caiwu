@@ -1,6 +1,6 @@
 {
   "createdAt": "2026-10-23T02:12:59.309Z",
-  "source": "shima-operations-ai-workbench, promotion-fee extraction; independent finance shell; 2026-11-12 changes: preserve verification windows, resume verified pre-submit login once, handle detached frames, speed up background fund navigation, and retry a stable date confirmation; 2026-11-14 changes: display plan dates, scope results by period, select accounts needing reauthentication, and show saved JD settlement dates",
+  "source": "shima-operations-ai-workbench, promotion-fee extraction; independent finance shell; 2026-11-12 changes: preserve verification windows, resume verified pre-submit login once, handle detached frames, speed up background fund navigation, and retry a stable date confirmation; 2026-11-14 changes: display plan dates, scope results by period, select accounts needing reauthentication, and show saved JD settlement dates; 2026-11-14 changes: observe manually completed logins for previously bound shops, persist verified sessions, then hide the corresponding window",
   "version": "1.2.98",
   "files": {
     "electron/main.cjs": "9000abe9eb856da0d4c7e8196256f0768beb84e846412cc9fa453a5241a6b31f",
@@ -11,12 +11,12 @@
     "electron/promotion-fee-export.cjs": "1a8a79427605b33b4b5b21e7615ff2d53c45a8d5a8a0d2c4ea8c89eb9392b9c5",
     "electron/promotion-fee-front.cjs": "04965325f13b74ac622103df095fc0c4323dcf9bea12aa454874b1a2fb3b1ba5",
     "electron/promotion-fee-jd.cjs": "452322252caf4421398052abc17a36487859a43e94781ad58287fec026426af4",
-    "electron/promotion-fee.cjs": "d141f9c2c82f4fbfcad94d5dcc08c006d551ab4054de9f75a5d1f402c838340e",
+    "electron/promotion-fee.cjs": "81cbc0750987ce03113b8028bf72af61a56d483fe8da2fed6c10e21ec7e09ac2",
     "ui/boot.js": "cf30fbfc84110233326e7c27e4d45f6dc42d8c3c86fb25e88a5cc3f949e49af2",
     "ui/finance.css": "4ebaeb4c4983f740454afee00783adca16df300fa5dc825b9f6fc3f1ed8bffd7",
     "ui/index.html": "1eb70824b8e5c39db3a1d77de1088cc949d2cf9cea0188beb2fea2769729cfec",
     "ui/promotion-fee.css": "02f79b0c38d2568aff0d6aac0356813584f715ef56548f32c5165013612ca15c",
-    "ui/promotion-fee.js": "c7a020abde9edd8b07976846386570fd8d402c7f7a92f7675314f52e40b09785",
+    "ui/promotion-fee.js": "23d90aef5ef28dd65bc22d85f0428689f0701d0af4f3551de784bfc30d682611",
     "vendor/xlsx.full.min.js": "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41",
     "assets/app-icon.png": "7beb7bd6a43d8bcdc87a0d80022c38b6ac6d09bacefaad81310c104d5bf117c7",
     "assets/app-icon.ico": "431deab57a686dd0c8ef7ae4953e12c4776cd67c99939bd4728ee19d359db9c2",
