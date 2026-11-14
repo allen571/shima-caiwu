@@ -53,23 +53,6 @@ if(!app.requestSingleInstanceLock()){
  app.whenReady().then(async()=>{
   try{
    trace('ready','开始初始化');
-   // v1.2.55：上个进程是异常结束（主进程原生崩溃/被强杀）时，自动把现场打包到桌面——
-   // 用户只要把这一个 txt 发回来，就能看到崩溃前最后几步（fund.log 是下载/导航的逐步行轨迹）
-   try{
-    const lock=path.join(app.getPath('userData'),'session.lock');
-    if(fs.existsSync(lock)){
-     const prev=fs.readFileSync(lock,'utf8').trim();
-     trace('previous-session-crashed',prev);
-     const cut=(file,n)=>{try{return fs.readFileSync(file,'utf8').trim().split('\n').slice(-n).join('\n');}catch(error){return '(无)';}};
-     const body='诗玛财务 AI 工作台 · 上次未正常退出\n发生时间：'+prev+'\n当前版本：v'+app.getVersion()+'\n\n== startup.log（最后 40 行）==\n'
-      +cut(path.join(app.getPath('userData'),'startup.log'),40)+'\n\n== fund.log（最后 60 行，批量下载/导航逐步轨迹）==\n'
-      +cut(path.join(app.getPath('userData'),'fund.log'),60)+'\n';
-     const name='诗玛崩溃记录_'+new Date(Date.now()+28800000).toISOString().replace(/[:.]/g,'-').slice(0,19)+'.txt';
-     fs.writeFileSync(path.join(app.getPath('desktop'),name),body);
-     trace('crash-report-written',name);
-    }
-    fs.writeFileSync(lock,new Date(Date.now()+28800000).toISOString().replace('T',' ').slice(0,19)+' v'+app.getVersion());
-   }catch(error){trace('crash-report-failed',error.message);}
    Menu.setApplicationMenu(null);
    if(process.platform==='darwin')app.dock?.setIcon(path.join(__dirname,'../assets/app-icon.png'));
    service=new(require('./promotion-fee.cjs').PromotionFee)({root:app.getPath('userData'),BrowserWindow,safeStorage,hidden:testMode,desktop:app.getPath('desktop')});
@@ -125,7 +108,7 @@ if(!app.requestSingleInstanceLock()){
     }
     return service[action](...args);
    });
-   for(const action of ['state','start','restart','pause','download','downloadBatch','setAutoDownload','diagnose','confirmManual','skipManual'])ipcMain.handle('fund:'+action,async(event,...args)=>{
+   for(const action of ['state','start','restart','pause','download','downloadBatch','setAutoDownload','confirmManual','skipManual'])ipcMain.handle('fund:'+action,async(event,...args)=>{
     if(event.sender!==main.webContents||event.senderFrame!==main.webContents.mainFrame)throw Error('无权访问');
     if(action==='start'&&(service.busy||service.loginBusy))throw Error('推广费查询或登录正在运行');
     return fund[action](...args);

@@ -9,7 +9,7 @@ window.FundSummary={async mount(host){
  host.innerHTML=`<div class="fund-summary">
   <section class="fs-card">
    <div class="fs-heading"><div><span class="fs-eyebrow">资金管理</span><h2>资金月汇总</h2></div>
-    <div class="fs-actions"><button id="fs-start">一键抓取所选</button><button id="fs-start-retry" title="备选入口：「一键抓取所选」点了没反应/按钮灰着不恢复时用——强制重置上一轮的抓取/导出状态，再按当前勾选重新抓取">备选抓取</button><button id="fs-start-manual">手动接管抓取</button><button id="fs-select-failed">勾选失败</button><button id="fs-pause">暂停</button><button id="fs-diagnose" class="fs-ghost">诊断导出</button></div></div>
+    <div class="fs-actions"><button id="fs-start">一键抓取所选</button><button id="fs-start-retry" title="备选入口：「一键抓取所选」点了没反应/按钮灰着不恢复时用——强制重置上一轮的抓取/导出状态，再按当前勾选重新抓取">备选抓取</button><button id="fs-start-manual">手动接管抓取</button><button id="fs-select-failed">勾选失败</button><button id="fs-pause">暂停</button></div></div>
    <p>抓取「财务 → 资金管理 → 聚合结算账户 → 月汇总」，按月读取收入、支出笔数与金额、期末余额。官方月汇总只在整月结束后出账，<strong>当月缺数据时会自动改抓「日汇总」并按天累加</strong>（结果标注「日汇总累计 N天」，期末余额取当月末一条）。账号与推广费页共用，登录一次两边可用；需要人工验证时会弹出官方窗口。京东/抖音账号不参与本页。<strong>抓取按勾选顺序逐个店铺串行执行（同一时刻只开一个店铺窗口），某家需要人工登录/验证时会停下等它完成，再继续下一家</strong>。</p>
    <div class="fs-controls">
     <label>开始月份<input type="month" id="fs-month-start"></label>
@@ -51,11 +51,11 @@ window.FundSummary={async mount(host){
   $('#fs-results').innerHTML=shown.map(r=>`<tr class="is-${r.status}${r.carriedOver?' is-carried':''}${r.isHistory?' is-history':''}"><td>${esc(r.shopName)}${r.isHistory?'<small class="fs-note">历史记录 · 不计入合计</small>':''}${r.carriedOver?'<small class="fs-note" title="该店本轮重抓未成功，此处显示上一轮已获取的结果，金额仍计入合计">上一轮结果</small>':''}</td><td>${esc(r.day||r.month)}${r.source?`<small class="fs-src" title="${esc(r.source)}${r.days?'：'+r.days+' 天':''}">${esc(r.source)}${r.days?' '+r.days+'天':''}</small>`:''}</td><td>${STATUS[r.status]||r.status}${r.error?`<small title="${esc(r.error)}">${esc(r.error.length>26?r.error.slice(0,26)+'…':r.error)}</small>`:''}${r.note?`<small class="fs-note" title="${esc(r.note)}">备注</small>`:''}</td><td>${r.detailCount??'—'}</td><td>${r.incomeCount??'—'}</td><td>${yuan(r.incomeCents)}</td><td>${r.expenseCount??'—'}</td><td>${yuan(r.expenseCents)}</td><td>${yuan(r.balanceCents)}</td><td>${r.month<now?`<button data-monthly="${r.shopId}" data-month="${esc(r.month)}" title="历史满月：到月汇总页填该月月份区间后点官方「导出」，下载该月的月汇总总计文件（月汇总只在整月结束后出账）" ${state.downloadBusy?'disabled':''}>月汇总</button> `:''}<button data-daily="${r.shopId}" data-month="${esc(r.month)}" title="按整月下载日汇总明细" ${state.downloadBusy?'disabled':''}>${r.day?'下载整月明细':'下载明细'}</button> <button data-detail="${r.shopId}" data-month="${esc(r.month)}" title="按整月下载收支明细" ${state.downloadBusy?'disabled':''}>${r.day?'整月收支明细':'收支明细'}</button></td></tr>`).join('')||'<tr><td colspan="10">选择月份并勾选店铺后，点「一键抓取所选」。</td></tr>';
   const locked=acting||state.busy||state.downloadBusy||state.diagnosing;
   $('#fs-start').disabled=locked;
-  $('#fs-start-manual').disabled=locked;$('#fs-diagnose').disabled=locked;
+  $('#fs-start-manual').disabled=locked;
   // 备选抓取（v1.2.38）：专为「一键抓取所选失灵」准备的强制入口——不受 acting/busy 锁限制，
   // 只在自身重入或导出/诊断真在跑时禁用（这两种情况有「暂停」逃生门）
   $('#fs-start-retry').disabled=retrying;
-  $('#fs-start-retry').title=retrying?'备选抓取启动中…':(state.downloadBusy||state.diagnosing)?'导出/诊断正在运行，可先点「暂停」中止再备选抓取':'强制重置上一轮抓取/导出状态并按当前勾选重新抓取（一键抓取所选失灵时用）';
+  $('#fs-start-retry').title=retrying?'备选抓取启动中…':(state.downloadBusy||state.diagnosing)?'导出正在运行，可先点「暂停」中止再备选抓取':'强制重置上一轮抓取/导出状态并按当前勾选重新抓取（一键抓取所选失灵时用）';
   // 批量下载明细（v1.2.39）：逐家走行级「下载明细」通道；批量进行中或本页有导出任务时禁用
   $('#fs-download-batch').disabled=batching||state.downloadBusy;
   // v1.2.80：抓取后自动下载开关（真值来源在主进程，勾选状态随状态轮询同步）
@@ -103,7 +103,6 @@ $('#fs-start-retry').onclick=async()=>{if(retrying)return;retrying=true;render()
  }catch(e){message(String(e.message||e).replace(/^Error invoking remote method '[^']+': (?:Error: )?/,''),true);}
  finally{retrying=false;try{await refresh();}catch(e){message('读取状态失败：'+e.message);}}
 };
-$('#fs-diagnose').onclick=()=>act(async()=>{const shopId=(state.manualPending&&state.manualPending.shopId)||[...selected][0]||((state.shops||[]).find(s=>['taobao','tmall'].includes(s.platform))||{}).id;if(!shopId)return message('请先勾选一个淘宝/天猫店铺再做诊断',true);message('诊断中：窗口会弹出来。若没自动打开月汇总页，请在里面手动点「财务 → 资金管理 → 月汇总」，到位后会自动结束（最多等 2 分钟）…');const r=await api('diagnose',shopId);message((r.reached?'诊断完成，已识别到月汇总页（'+r.url+'）。':'诊断完成，自动导航仍未到位。')+'文件夹：'+r.dir+'（导航事件 '+r.events+' 条、页面快照 '+r.htmlFiles+' 个），请把这个文件夹发回');},210);
 $('#fs-manual-confirm').onclick=()=>act(async()=>{const pending=state.manualPending;if(!pending)return message('当前没有等待中的店铺');await api('confirmManual',pending.shopId);message('已确认，继续读取「'+pending.name+'」');},150);
 $('#fs-manual-skip').onclick=()=>act(async()=>{const pending=state.manualPending;if(!pending)return message('当前没有等待中的店铺');await api('skipManual',pending.shopId);message('已跳过「'+pending.name+'」，继续下一家');},150);
  $('#fs-select-failed').onclick=()=>{const ids=new Set((state.results||[]).filter(r=>!r.carriedOver&&['failed','paused','manual'].includes(r.status)).map(r=>r.shopId));selected=new Set((state.shops||[]).filter(s=>['taobao','tmall'].includes(s.platform)&&(ids.has(s.id)||needsLogin(s))).map(s=>s.id));$('#fs-shops').dataset.touched='1';render();message(selected.size?'已勾选 '+selected.size+' 个失败或需要重新登录的店铺':'没有失败或需要重新登录的店铺');};

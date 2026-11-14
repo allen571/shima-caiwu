@@ -62,8 +62,6 @@ const OPEN_TIMEOUT_MS=150000,ROW_TIMEOUT_MS=30000,DOWNLOAD_TIMEOUT_MS=45000,MANU
 const EXPORT_TIMEOUT_MS=120000;
 // 整月导出按天/分片出多个文件：连续这么久没有新分片落地即认为出完（v1.2.27）
 const DOWNLOAD_IDLE_MS=10000;
-// 抓取失败时自动落诊断包的上限：并发多店铺同时失败也不刷屏，先看第一手的
-const FAIL_CAPTURE_LIMIT=3;
 // v1.2.40 资金抓取强制串行（用户 2026-11-05 实测反馈）：此前沿用推广费的 concurrency（默认 4），
 // 会同时打开 4 个店铺窗口；每个店铺是独立 partition 会话，需要各自登录/验证时登录弹窗一起弹，
 // 人工只能顾一个，其余店铺页面被挤掉、直达链接失效 → 整批失败。
@@ -545,43 +543,6 @@ function menuProbeScript(keyword,hoverText){
   tick();
  });
 }
-// 页面脚本：诊断采集——当前地址（含桥接 iframe 解码后的真实应用地址）、正文、左侧菜单候选、
-// 财务相关可点元素、iframe 列表（带坐标偏移，供真实鼠标事件换算窗口坐标）、shadow root 内容
-function diagnoseScript(){
- const visible=e=>!!e&&e.getClientRects().length>0&&!e.closest('[hidden],[aria-hidden=true]')&&(e.checkVisibility?e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}):getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none'&&getComputedStyle(e).opacity!=='0');
- const text=e=>(e?.innerText||e?.textContent||'').replace(/[\uE000-\uF8FF]/g,'').replace(/\s+/g,' ').trim();
- const rectOf=e=>{const r=e.getBoundingClientRect();return {x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height)};};
- const sel='a,span,div,button,li,[role=menuitem],[role=tab],[role=button]';
- const collect=root=>[...root.querySelectorAll(sel)].filter(visible).map(e=>{const t=text(e);return t&&t.length<=30?{t,tag:e.tagName.toLowerCase(),cls:String(e.className||'').slice(0,70),href:(e.closest('a[href]')||{}).href||'',r:rectOf(e)}:null;}).filter(Boolean);
- const items=collect(document);
- // Web Components：侧边栏若用 shadow DOM 渲染，常规选择器拿不到，这里单独收集
- let shadowHosts=0;const shadowItems=[];
- (function walk(root){for(const h of root.querySelectorAll('*')){if(!h.shadowRoot)continue;shadowHosts++;shadowItems.push(...collect(h.shadowRoot));walk(h.shadowRoot);}})(document);
- let xd='';try{const m=decodeURIComponent(location.hash||'').match(/"url"\s*:\s*"([^"]+)"/);if(m)xd=m[1];}catch(e){}
- const all=items.concat(shadowItems);
- return {
-  url:location.href,xdUrl:xd,title:document.title,
-  body:(document.body?.innerText||'').replace(/\s+/g,' ').slice(0,1500),
-  menu:items.filter(o=>o.r.x<340&&o.t.length<=14).slice(0,60),
-  shadowHosts,shadowMenu:shadowItems.filter(o=>o.t.length<=14).slice(0,40),
-  keywords:all.filter(o=>/财务|资金|账户|结算|对账|资产|钱包|收款|账单/.test(o.t)).slice(0,40),
-  iframes:[...document.querySelectorAll('iframe,frame')].map(f=>({src:String(f.src||f.name||'').slice(0,300),visible:visible(f),r:rectOf(f)})),
-  inputs:document.querySelectorAll('input').length,
-  scroll:{x:Math.round(scrollX||0),y:Math.round(scrollY||0)}
- };
-}
-// 页面脚本：导出精简 DOM（去掉脚本/样式），供事后离线对照真实结构写选择器
-function dumpHtmlScript(limit){
- const clone=document.documentElement.cloneNode(true);
- for(const e of clone.querySelectorAll('script,style,link,noscript,svg,path'))e.remove();
- // shadow root 的内容不在 outerHTML 里，单独序列化后追加
- const shadows=[];let i=0;
- (function walk(root){for(const h of root.querySelectorAll('*')){if(!h.shadowRoot)continue;i++;shadows.push('<!-- shadow#'+i+' host='+h.tagName.toLowerCase()+'.'+String(h.className||'').slice(0,40)+' -->\n'+h.shadowRoot.innerHTML);walk(h.shadowRoot);}})(document);
- let html=clone.outerHTML.replace(/\n\s*\n/g,'\n').replace(/[ \t]{2,}/g,' ');
- if(shadows.length)html+='\n<SHADOW_ROOTS>\n'+shadows.join('\n')+'\n</SHADOW_ROOTS>';
- const cap=limit||400000;
- return {url:location.href,title:document.title,length:html.length,truncated:html.length>cap,html:html.slice(0,cap)};
-}
 function sanitizeName(name){return String(name||'').replace(/[\\/:*?"<>|\s]+/g,'-').slice(0,60)||'店铺';}
 function today(){return new Date(Date.now()+28800000).toISOString().slice(0,10);}
 // v1.2.80 批量下载任务表（纯函数，便于单测）：按抓取结果挑出可下载的行——
@@ -608,7 +569,7 @@ class FundSummary{
   this.file=path.join(root,'fund-summary.json');
   this.busy=false;this.stopped=false;this.downloadBusy=false;this.downloadCtx=null;this.phaseText='';this.lastError='';this.activeQueries=new Map();
   // 手动接管：等待用户在弹窗里点到资金页；诊断：采集真实页面结构
-  this.manual=false;this.manualConfirmed=new Set();this.manualSkipped=new Set();this.manualPendingInfo=null;this.diagnosing=false;this.failCaptures=0;this.failCapturedShops=new Set();
+  this.manual=false;this.manualConfirmed=new Set();this.manualSkipped=new Set();this.manualPendingInfo=null;this.diagnosing=false;
   this.data={version:1,exportFolder:'',results:[]};
   // v1.2.80 批量下载任务去重集合：键 = 店铺|月份|runId（**必须带 runId**——此前 UI 只按店铺|月份去重，
   // 上一批下载成功后重新抓取的新数据仍被跳过，用户看到的就是「批量下载明细按钮用不了了」）
@@ -1536,10 +1497,10 @@ class FundSummary{
   return this.state();
  }
  async start(input){
-  if(this.busy||this.downloadBusy||this.diagnosing)throw Error('资金月汇总抓取、导出或诊断正在运行');
+  if(this.busy||this.downloadBusy||this.diagnosing)throw Error('资金月汇总抓取或导出正在运行');
   if(this.host.busy||this.host.loginBusy||this.host.accountTransferBusy)throw Error('推广费查询或登录正在运行');
   if(this.host.writeFailure)throw Error('本机保存失败，已停止后续抓取');
-  this.manual=!!input.manual;this.manualConfirmed.clear();this.manualSkipped.clear();this.failCaptures=0;this.failCapturedShops.clear();
+  this.manual=!!input.manual;this.manualConfirmed.clear();this.manualSkipped.clear();
   // v1.2.61：定时计划（每日计划）用——day 传 'YYYY-MM-DD' 时只抓这一天的日汇总（T-1 单日口径）
   const day=input.day||null;
   if(day&&!/^\d{4}-\d{2}-\d{2}$/.test(day))throw Error('单日格式应为 YYYY-MM-DD：'+day);
@@ -1594,14 +1555,6 @@ class FundSummary{
        if(this.stopped){try{patch({status:'paused',error:'已暂停'});}catch{}return;}
        failed=true;
        let msg=/Object has been destroyed|Render frame was disposed/.test(error.message)?'该店铺的千牛窗口已关闭，请补查该店铺':error.message;
-       // 抓取失败自动落诊断包（v1.2.15）：用户零额外操作，把桌面生成的文件夹发回即可定位导航问题；
-       // 窗口已销毁的失败没有现场可采，跳过
-       if(!/窗口已关闭|Object has been destroyed|Render frame was disposed/.test(msg)){
-        try{
-         const dir=await this.captureFailure(shop,error);
-         if(dir)msg+='；已自动生成诊断包：'+dir+'（请把该文件夹发给 AI 定位）';
-        }catch(e){}
-       }
        patch({status:'failed',error:msg});
        this.save({...this.data,results:this.data.results.map(r=>r.runId===runId&&r.shopId===shop.id&&r.status==='queued'?{...r,status:'paused',error:'本店前一项失败，请处理后补查',updatedAt:new Date().toISOString()}:r)});
        break;
@@ -1619,167 +1572,6 @@ class FundSummary{
   if(this.stopped)this.save({...this.data,results:this.data.results.map(r=>r.runId===runId&&['queued','running'].includes(r.status)?{...r,status:'paused',error:'已暂停'}:r)});
  }
  pause(){this.stopped=true;return this.state();}
- // —— 失败现场自动采集（v1.2.15）：抓取一失败就落盘诊断包，不再要求用户单独点「诊断导出」——
- // 只做只读采集（页面快照 + DOM + 截图 + 导航事件流），不导航、不等待人工，几秒内完成，不干扰并发抓取
- async captureFailure(shop,error,trigger){
-  if(this.failCaptures>=FAIL_CAPTURE_LIMIT||this.failCapturedShops.has(shop.id))return '';
-  let win=null;
-  try{win=this.host.window(shop);this.host.assertWindow(win);}catch(e){return '';}
-  const dir=path.join(this.desktop||this.downloads,'诗玛资金诊断_'+sanitizeName(shop.name)+'_'+new Date(Date.now()+28800000).toISOString().replace(/[:.]/g,'-').slice(0,19));
-  try{fs.mkdirSync(dir,{recursive:true});}catch(e){return '';}
-  const report={generatedAt:new Date().toISOString(),app:'诗玛财务AI工作台',trigger:trigger||'抓取失败自动采集',
-   shop:{id:shop.id,name:shop.name,platform:shop.platform||'taobao'},
-   error:String(error&&error.message||error).slice(0,600),
-   events:(win&&win.__fundNavTrace||[]).slice(-300),frames:[]};
-  // 每个页面区域的只读快照；全 frame 失败也不影响 JSON 落盘
-  try{
-   for(const frame of this.framesOf(win)){
-    const st=await this.host.readPage(win,'('+diagnoseScript.toString()+')()',frame).catch(()=>null);
-    const at=await this.host.readPage(win,'('+fundInspect.toString()+')()',frame).catch(()=>null);
-    if(!st&&!at)continue;
-    if(st)st.state=at?{fundHome:!!at.fundHome,onFundUrl:!!at.onFundUrl,micro:at.micro||null,record:!!at.record,row:!!at.row,monthInputs:(at.monthInputs||[]).length,error:at.error||''}:null;
-    report.frames.push(st||{state:at});
-   }
-  }catch(e){report.framesError=e.message;}
-  try{fs.writeFileSync(path.join(dir,'诊断.json'),JSON.stringify(report,null,2));}catch(e){return '';}
-  // DOM 快照与截图尽力而为，任何一步失败不影响已落盘的 JSON
-  let idx=0;
-  try{
-   for(const frame of this.framesOf(win)){
-    idx++;
-    const d=await this.host.readPage(win,'('+dumpHtmlScript.toString()+')('+200000+')',frame).catch(()=>null);
-    if(d&&d.html){try{fs.writeFileSync(path.join(dir,'frame-'+idx+'.html'),'<!-- '+d.url+' -->\n'+d.html);}catch(e){}}
-   }
-  }catch(e){}
-  try{
-   const wc=this.host.assertWindow(win);
-   const img=await wc.capturePage();
-   if(img&&!img.isEmpty())fs.writeFileSync(path.join(dir,'页面截图.png'),img.toPNG());
-  }catch(e){}
-  this.failCaptures++;this.failCapturedShops.add(shop.id);
-  return dir;
- }
- // —— 诊断：一次把「导航为什么失败」的全部现场落盘 ——
- // 采集内容：导航事件流（含重定向，能解释「直达链接被弹回」）+ CDP target 列表（跨进程 iframe 的地址）
- // + 分阶段页面快照 + 每个区域的真实 DOM + 截图。用户只需点一次，必要时在窗口里手动点两下菜单补一脚。
- async diagnose(shopId){
-  if(this.busy||this.downloadBusy||this.diagnosing)throw Error('资金抓取、导出或诊断正在运行');
-  if(this.host.busy||this.host.loginBusy||this.host.accountTransferBusy)throw Error('推广费查询或登录正在运行');
-  const shop=this.host.shop(shopId);
-  if(!['taobao','tmall'].includes(shop.platform||'taobao'))throw Error('诊断仅支持淘宝/天猫账号');
-  this.diagnosing=true;this.stopped=false;this.lastError='';this.phaseText='正在采集诊断信息：'+shop.name;
-  const started=Date.now(),events=[],listeners=[];
-  const rec=(type,detail)=>{if(events.length<500)events.push({ms:Date.now()-started,type,detail:String(detail||'').slice(0,300)});};
-  let win=null;
-  try{
-   win=this.host.window(shop);
-   await this.authenticateGuarded(shop,win);
-   const wc=this.host.assertWindow(win);
-   // 诊断时窗口要可见：自动导航失败后，用户能在窗口里手动点两下补一脚
-   try{if(!win.isDestroyed()&&!win.isVisible())win.show();}catch(e){}
-   // ① 导航事件流：「直达链接被弹回」的真相都在这几条里
-   const on=(evt,fn)=>{try{wc.on(evt,fn);listeners.push([evt,fn]);}catch(e){}};
-   on('will-navigate',(e,url)=>rec('will-navigate',url));
-   on('will-redirect',(e,url)=>rec('will-redirect',url));
-   on('did-start-navigation',(e,url,isInPlace,isMainFrame)=>rec('did-start-navigation',(isMainFrame?'[main] ':'[sub] ')+url));
-   on('did-redirect-navigation',(e,url,isInPlace,isMainFrame)=>rec('did-redirect-navigation',(isMainFrame?'[main] ':'[sub] ')+url));
-   on('did-frame-navigate',(e,url,code,status,isMainFrame)=>rec('did-frame-navigate',(isMainFrame?'[main] ':'[sub] ')+url));
-   on('did-fail-load',(e,code,desc,url)=>rec('did-fail-load',code+' '+desc+' '+url));
-   const popups=[];
-   // 记录菜单点击是否弹新窗口（诊断期间只记录地址，不真的放行新窗口）
-   try{wc.setWindowOpenHandler(({url})=>{popups.push(url);rec('window-open',url);return {action:'deny'};});}catch(e){}
-   // ② CDP target 枚举：跨进程 iframe（OOPIF）的地址只有协议层看得到，framesInSubtree 拿不到
-   const cdpTargets=[];
-   try{
-    if(!wc.debugger.isAttached())wc.debugger.attach('1.3');
-    const r=await wc.debugger.sendCommand('Target.getTargets');
-    for(const t of (r&&r.targetInfos)||[])cdpTargets.push({type:t.type,url:String(t.url||'').slice(0,400),title:String(t.title||'').slice(0,80)});
-   }catch(e){rec('cdp-error',e.message);}
-   const snapAll=async label=>{
-    const frames=[];
-    for(const frame of this.framesOf(win)){
-     const st=await this.host.readPage(win,'('+diagnoseScript.toString()+')()',frame).catch(()=>null);
-     const at=await this.host.readPage(win,'('+fundInspect.toString()+')()',frame).catch(()=>null);
-     if(st){st.state=at?{fundHome:!!at.fundHome,onFundUrl:!!at.onFundUrl,micro:at.micro||null,record:!!at.record,row:!!at.row,monthInputs:(at.monthInputs||[]).length,error:at.error||''}:null;frames.push(st);}
-    }
-    return {label,at:new Date().toISOString(),frames};
-   };
-   const report={generatedAt:new Date().toISOString(),app:'诗玛财务AI工作台',shop:{id:shop.id,name:shop.name,platform:shop.platform||'taobao'},stages:[],events,popups,cdpTargets};
-   report.stages.push(await snapAll('① 登录后初始页面'));
-   // 阶段二：直达链接（跳过菜单）——成功失败都看，重定向链会记进 events
-   try{await this.host.load(win,fundUrlCandidates('月汇总')[0]);}catch(e){rec('direct-load-error',e.message);}
-   await wait(1500);
-   report.stages.push(await snapAll('② 直达月汇总链接后 1.5 秒'));
-   // 阶段三：真实鼠标（isTrusted）点「财务」，再找子菜单「资金管理」并真实点击
-   const clickInfo={hover:false,hit:false};
-   try{
-    const r=await this.host.readPage(win,'('+menuRectScript.toString()+')('+JSON.stringify('财务')+','+JSON.stringify('资金管理')+')');
-    clickInfo.rect=r;
-    if(r&&r.hover){
-     await this.mouse(win,'mouseMove',r.hover.x,r.hover.y);await wait(250);
-     await this.mouse(win,'mouseDown',r.hover.x,r.hover.y);await this.mouse(win,'mouseUp',r.hover.x,r.hover.y);
-     clickInfo.hover=true;
-    }
-    await wait(1200);
-    const after=await this.host.readPage(win,'('+menuRectScript.toString()+')('+JSON.stringify('财务')+','+JSON.stringify('资金管理')+')').catch(()=>null);
-    clickInfo.after=after;
-    if(after&&after.hit){await this.mouse(win,'mouseDown',after.hit.x,after.hit.y);await this.mouse(win,'mouseUp',after.hit.x,after.hit.y);clickInfo.hit=true;}
-   }catch(e){clickInfo.error=e.message;}
-   report.click=clickInfo;
-   await wait(1500);
-   report.stages.push(await snapAll('③ 真实点击「财务」后 3 秒'));
-   // 阶段四：等用户在可见窗口里手动点到月汇总页（默认最多 120 秒，测试可置 0），一识别到就立即记录
-   let reached=null;
-   const waitMs=Number.isFinite(this.diagnoseWaitMs)?this.diagnoseWaitMs:120000;
-   const deadline=Date.now()+waitMs;
-   while(Date.now()<deadline){
-    if(this.stopped)break;
-    const st=await this.inspectAll(win).catch(()=>null);
-    if(st&&(st.record||(st.onFundUrl&&((st.monthInputs||[]).length||st.row)))){reached={url:st.url,record:!!st.record,monthInputs:(st.monthInputs||[]).length,row:!!st.row};break;}
-    this.phaseText='诊断：若窗口还没到月汇总页，请手动点「财务 → 资金管理 → 月汇总」（最多再等 '+Math.max(0,Math.round((deadline-Date.now())/1000))+' 秒）';
-    await wait(2500);
-   }
-   report.manual={reached,elapsedMs:Date.now()-started};
-   report.stages.push(await snapAll(reached?'④ 已识别到月汇总页':'④ 结束时的页面'));
-   const dir=path.join(this.desktop||this.downloads,'诗玛资金诊断_'+new Date(Date.now()+28800000).toISOString().replace(/[:.]/g,'-').slice(0,19));
-   fs.mkdirSync(dir,{recursive:true});
-   // ③ 真实 DOM 快照：每个页面区域一份精简 HTML（去掉脚本/样式，shadow root 内容附在末尾）
-   const htmlFiles=[];let idx=0;
-   for(const frame of this.framesOf(win)){
-    idx++;
-    const d=await this.host.readPage(win,'('+dumpHtmlScript.toString()+')('+200000+')',frame).catch(()=>null);
-    if(!d||!d.html)continue;
-    const name='frame-'+idx+'.html';
-    try{fs.writeFileSync(path.join(dir,name),'<!-- '+d.url+' -->\n'+d.html);htmlFiles.push({file:name,url:d.url,bytes:d.length,truncated:!!d.truncated});}catch(e){}
-   }
-   report.htmlFiles=htmlFiles;
-   const file=path.join(dir,'诊断.json');
-   fs.writeFileSync(file,JSON.stringify(report,null,2));
-   const shot=path.join(dir,'页面截图.png');
-   let shotOk=false;
-   try{const img=await wc.capturePage();if(img&&!img.isEmpty()){fs.writeFileSync(shot,img.toPNG());shotOk=true;}}catch(e){}
-   try{
-    fs.writeFileSync(path.join(dir,'说明.txt'),[
-     '诗玛财务AI工作台 · 资金页导航诊断包',
-     '生成时间：'+new Date(Date.now()+28800000).toISOString().replace('T',' ').slice(0,19),
-     '店铺：'+shop.name,
-     '',
-     '诊断.json    主报告：各阶段页面快照、导航事件流（含重定向）、CDP target 列表、菜单元素坐标',
-     '页面截图.png  诊断结束时的窗口画面',
-     'frame-*.html  每个页面区域（含 iframe）的精简 DOM',
-     '',
-     '是否识别到月汇总页：'+(reached?'是 · '+reached.url:'否'),
-     '提示：整个文件夹发回即可定位；文件太大时只发 诊断.json 也可以。',
-    ].join('\r\n'));
-   }catch(e){}
-   return {dir,file,screenshot:shotOk?shot:'',popups:popups.length,reached:!!reached,url:reached?reached.url:'',stages:report.stages.length,frames:report.stages[0].frames.length,htmlFiles:htmlFiles.length,events:events.length,targets:cdpTargets.length};
-  }finally{
-   for(const [evt,fn] of listeners){try{if(win&&!win.isDestroyed())win.webContents.removeListener(evt,fn);}catch(e){}}
-   // 诊断覆盖了窗口的 window-open 处理：销毁窗口避免影响后续抓取（登录态在持久分区，不受影响）
-   try{if(win&&!win.isDestroyed())win.destroy();}catch(e){}
-   this.diagnosing=false;this.phaseText='';
-  }
- }
  // —— 导出：日汇总 / 收支明细 ——
  // 逐 frame 探测账单文件直链；官方弹窗绕开下载管理器时这是唯一的自动取文件途径
  async probeFileUrl(win){
@@ -1926,7 +1718,7 @@ class FundSummary{
      if(!this.downloadCtx)return;
      const ctx=this.downloadCtx;this.downloadCtx=null;clearTimeout(ctx.idle);
      // 超时但已收到部分分片：不判失败，把已拿到的文件交付出去
-     ctx.files.length?ctx.resolve({files:ctx.files.slice()}):reject(Error('未捕获到导出文件下载：官方页面 '+Math.round(total/1000)+' 秒内没有开始传文件。已自动尝试填写区间、点搜索、点导出（含真实鼠标）与各弹窗按钮。请在官方窗口手动导出一次（选日期→搜索→导出→立即下载）：手动能下载说明官方流程变了他处，把诊断包发回即可定位差异'));
+     ctx.files.length?ctx.resolve({files:ctx.files.slice()}):reject(Error('未捕获到导出文件下载：官方页面 '+Math.round(total/1000)+' 秒内没有开始传文件。已自动尝试填写区间、点搜索、点导出（含真实鼠标）与各弹窗按钮。请在官方窗口手动导出一次（选日期→搜索→导出→立即下载）：手动能下载说明官方流程变了他处'));
     },total);
     const ctx={win,dir,prefix,files:[],started:false,idle:null,timer,resolve,reject};
    // settle 需要访问实例状态：用闭包绑定
@@ -2092,7 +1884,7 @@ class FundSummary{
   this.log('rows-done',shop.name+' '+month+' 行数='+total+' 文件='+done.files.length+' 直链='+ossGot+' 下载器='+dlGot+' 跳过='+skips.length);
   const note=[];
   if(skips.length)note.push('有 '+skips.length+' 天没拿到明细：'+skips.slice(0,12).map(s=>s.date.slice(4,6)+'-'+s.date.slice(6)+'（'+s.why+'）').join('、')+(skips.length>12?' 等':''));
-  if(!done.files.length)throw Error('逐行下载明细没有拿到任何文件（共 '+total+' 行）'+(note.length?'：'+note[0]:'')+'。请在官方窗口手动点几行「下载明细」验证：手动能下载说明行级链接行为有变，把诊断包发回即可定位');
+  if(!done.files.length)throw Error('逐行下载明细没有拿到任何文件（共 '+total+' 行）'+(note.length?'：'+note[0]:'')+'。请在官方窗口手动点几行「下载明细」验证：手动能下载说明行级链接行为有变');
   return {files:done.files,note:note.join('；')};
  }
  // v1.2.80 抓取后自动下载开关（默认开）：存在 fund-summary.json，重启后保持用户选择
@@ -2169,12 +1961,6 @@ class FundSummary{
   }catch(error){
    this.lastError=error.message;
    this.log('download-fail',shop.name+' | '+error.message);
-   // 导出失败也自动落诊断包（v1.2.24）：弹窗结构、生成进度、直链是否出现都要第一手现场；
-   // 二轮重试后仍失败才走到这里，第一轮的失败不留包（避免同因重复诊断包）
-   try{
-    const dir=await this.captureFailure(shop,error,'导出失败自动采集');
-    if(dir)this.lastError=error.message+'；已自动生成诊断包：'+dir+'（请把该文件夹发给 AI 定位）';
-   }catch(e){}
    if(!this.stopped){const win=this.host.windows?.get(shop.id);if(win&&!win.isDestroyed())this.host.showProblem(win);}
    throw error;
   }
@@ -2208,10 +1994,6 @@ class FundSummary{
   }catch(error){
    this.lastError=error.message;
    this.log('download-fail',shop.name+' | '+error.message);
-   try{
-    const dir=await this.captureFailure(shop,error,'单日明细下载失败自动采集');
-    if(dir)this.lastError=error.message+'；已自动生成诊断包：'+dir;
-   }catch(e){}
    if(!this.stopped){const win=this.host.windows?.get(shop.id);if(win&&!win.isDestroyed())this.host.showProblem(win);}
    throw error;
   }
@@ -2346,4 +2128,4 @@ class FundSummary{
  }
  close(){this.stopped=true;}
 }
-module.exports={FundSummary,FUND_EARLIEST,KINDS,monthRange,monthEnd,nowMonth,nowDate,parseAmount,parseSummaryRow,fundInspect,fillMonthScript,clickTextScript,depositEntryScript,nextPageScript,menuProbeScript,menuRectScript,menuPointerScript,detailRowsScript,clickDetailScript,diagnoseScript,dumpHtmlScript,sanitizeName,fundUrlCandidates,batchJobs};
+module.exports={FundSummary,FUND_EARLIEST,KINDS,monthRange,monthEnd,nowMonth,nowDate,parseAmount,parseSummaryRow,fundInspect,fillMonthScript,clickTextScript,depositEntryScript,nextPageScript,menuProbeScript,menuRectScript,menuPointerScript,detailRowsScript,clickDetailScript,sanitizeName,fundUrlCandidates,batchJobs};

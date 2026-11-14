@@ -455,54 +455,16 @@ test('手动接管：已落在资金页会自动放行，不必点确认；跳�
  const r=second.fund.state().results[0];
  assert.equal(r.status,'failed');assert.match(r.error,/已手动跳过/);
 });
-test('诊断导出：写出 JSON 与截图，含各 frame 地址与菜单候选',async()=>{
- const diag={url:'https://myseller.taobao.com/home.htm/QnworkbenchHome/',xdUrl:'https://qn.taobao.com/app/x',title:'千牛工作台',body:'管家 协议 财务 资金',menu:[{t:'财务',tag:'span',cls:'menu-item',href:'',r:{x:10,y:200,w:60,h:24}}],keywords:[{t:'资金管理',tag:'span',cls:'sub',href:'',r:{x:80,y:230,w:80,h:24}}],iframes:[{src:'https://g.alicdn.com/platform/xdomain-iframe/frame.html',visible:true}],inputs:0};
- const {fund,host,root}=tempFund({read(){return diag;},execute(){}});
- fund.desktop=root;fund.downloads=root;fund.diagnoseWaitMs=0;
- host.assertWindow=()=>({mainFrame:{framesInSubtree:[]},setWindowOpenHandler(){},capturePage:async()=>({isEmpty:()=>false,toPNG:()=>Buffer.from('fake-png')})});
- const out=await fund.diagnose('s1');
- assert.ok(out.dir&&fs.existsSync(out.dir),'诊断目录应存在');
- const file=path.join(out.dir,'诊断.json');
- assert.ok(fs.existsSync(file),'诊断.json 应存在');
- const report=JSON.parse(fs.readFileSync(file,'utf8'));
- assert.equal(report.shop.name,'测试旗舰店');
- assert.equal(report.stages.length,4,'初始/直达链接/真实点击/结束四组快照');
- assert.equal(report.stages[0].frames[0].xdUrl,'https://qn.taobao.com/app/x','桥内地址应被解码保留');
- assert.equal(report.stages[0].frames[0].menu[0].t,'财务');
- assert.ok(Array.isArray(report.events),'导航事件流应落盘');
- assert.ok(Array.isArray(report.cdpTargets),'CDP target 列表应落盘');
- assert.equal(typeof report.manual.reached,'object','手动到达结果应记录');
- assert.ok(fs.existsSync(path.join(out.dir,'页面截图.png')),'截图应存在');
- assert.ok(fs.existsSync(path.join(out.dir,'说明.txt')),'说明文件应存在');
- assert.equal(fund.state().diagnosing,false);
-});
-test('抓取失败自动生成诊断包：JSON+DOM+截图落盘，错误信息带路径，无需用户多点一步',async()=>{
- const diag={url:'https://myseller.taobao.com/home.htm/QnworkbenchHome/',xdUrl:'https://qn.taobao.com/app/x',title:'千牛工作台',body:'财务 资金管理',menu:[{t:'财务',tag:'span',cls:'',href:'',r:{x:10,y:200,w:60,h:24}}],keywords:[],iframes:[],inputs:0};
- const pages={read(_p,target,script){
-  if(/dumpHtmlScript/.test(script))return {url:'https://shell',html:'<div>壳页DOM</div>'};
-  return diag;
- },execute(){}};
- const {fund,host}=tempFund(pages);
- fund.openTimeoutMs=300;
- const wcStub={mainFrame:{framesInSubtree:['f1']},listeners:[],on(evt,fn){this.listeners.push([evt,fn]);},capturePage:async()=>({isEmpty:()=>false,toPNG:()=>Buffer.from('png-bytes')})};
- host.assertWindow=()=>wcStub;
+test('资金抓取失败保留原因且不生成诊断包',async()=>{
+ const {fund,root}=tempFund({read(){return {};},execute(){}});
+ fund.desktop=root;fund.downloads=root;
+ fund.query=async()=>{throw Error('模拟资金抓取失败');};
  await fund.start({shopIds:['s1'],months:{start:'2026-10',end:'2026-10'}});
- await fund.work.catch(()=>{});
+ await fund.work;
  const row=fund.state().results[0];
- assert.equal(row.status,'failed');
- assert.ok(row.error.includes('已自动生成诊断包'),'错误信息应带诊断包路径：'+row.error);
- const dir=row.error.match(/已自动生成诊断包：(.+?)（/)[1];
- const report=JSON.parse(fs.readFileSync(path.join(dir,'诊断.json'),'utf8'));
- assert.equal(report.trigger,'抓取失败自动采集');
- assert.equal(report.shop.name,'测试旗舰店');
- assert.ok(Array.isArray(report.events),'导航事件流应落盘');
- assert.equal(report.frames[0].xdUrl,'https://qn.taobao.com/app/x','桥内地址应保留');
- assert.ok(fs.existsSync(path.join(dir,'frame-1.html')),'每 frame DOM 应落盘');
- assert.ok(fs.readFileSync(path.join(dir,'frame-1.html'),'utf8').includes('壳页DOM'));
- assert.ok(fs.existsSync(path.join(dir,'页面截图.png')),'截图应落盘');
- assert.ok(wcStub.listeners.some(l=>l[0]==='did-start-navigation'),'抓取期间应挂导航事件监听');
- // 同店铺第二个月份再失败不应重复采集
- assert.equal(fund.failCapturedShops.has('s1'),true);
+ assert.equal(row.status,'failed');assert.match(row.error,/模拟资金抓取失败/);
+ assert.equal(fs.readdirSync(root).some(x=>x.startsWith('诗玛资金诊断_')),false);
+ assert.equal(typeof fund.diagnose,'undefined');
 });
 test('直达链接被弹回后：优先走「收支记录」入口（用户确认的财务总览路径），再退菜单导航',async()=>{
  const shell={fundHome:false,record:false,tabs:{},monthInputs:[],row:null,head:null,empty:false,loading:false,micro:{present:true,loaded:true},body:'卖家中心财务总览',url:'https://myseller.taobao.com/home.htm'};
