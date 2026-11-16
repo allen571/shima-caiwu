@@ -176,7 +176,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
    catch(error){this.assertWindow(win);if(attempt>=2||!/Execution context was destroyed|Cannot find context|frame was detached|Render frame was disposed|navigation/i.test(error.message))throw error;await wait(150);}
   }
  }
- async load(win,url){
+ async load(win,url,{beforeNavigate}={}){
   const wc=this.assertWindow(win);let timer,poll;const listeners=[];
   try{
    await new Promise((resolve,reject)=>{
@@ -190,7 +190,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
     poll=setInterval(()=>{try{this.assertWindow(win);}catch(error){stop(error);}},100);
     // 京东窗口加载看门狗同样放宽到45秒，淘宝/千牛维持20秒
    timer=setTimeout(()=>stop(Error('官方页面加载超时，请补查该账号')),win.promotionPlatform==='jd'?(this.jdNavigationTimeoutMs||45000):(this.navigationTimeoutMs||20000));
-    try{Promise.resolve(win.loadURL(url)).then(()=>finish(),error=>finish(error));}catch(error){finish(error);}
+    try{if(beforeNavigate)beforeNavigate();Promise.resolve(win.loadURL(url)).then(()=>finish(),error=>finish(error));}catch(error){finish(error);}
    });
    this.assertWindow(win);
   }catch(error){
@@ -236,7 +236,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
    // password 输入时，兜底被整体跳过 → 弹窗里框是空的。改为：
    // ① 有可用密码框且密码未填 → force 覆盖写入（不动已填好的密码）；
    // 写完回读校验，最多 3 轮，避免 React 重渲染把值清掉。
-   if(credentials&&result.status==='manual'){
+   if(credentials&&!credentials.noForce&&result.status==='manual'){
     const probe=await this.execute(win,probeInputs(credentials.username),false,frame).catch(()=>null);
     const stage=credentials.stage;
     // 只在「密码空 + 账号框不是别人账号」时补填，避免覆盖用户手输的其他账号
@@ -293,13 +293,21 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
   };
   schedule();
  }
- async attention(shop,win,message,ledger=false,allowSubmit=false){
+ async attention(shop,win,message,ledger=false,allowSubmit=false,prefillUnknown=false){
   // v1.2.81（2026-11-10 财务反馈「跑一下停一下，要点暂停再点抓取」）：旧实现任何一家店遇到
   // 滑块/协议都会在这里原地等 15 分钟，并发 4 时 4 家一卡，后面 150 多家全排队。
   // 批量抓取（run/start）一律立刻抛出「需人工」，跳过该店继续跑；只有用户主动点「登录」才等待。
   if(!this.interactive){
    // 保留需要人工处理的官方窗口，让用户能看到并完成验证。
-   if(!this.hidden&&!this.backgroundOnly&&!this.stopped)this.showProblem(win);
+   if(!this.hidden&&!this.backgroundOnly&&!this.stopped){
+    this.showProblem(win);
+    // 未知提交检查点只允许预填，绝不重复提交；有输入或验证码时由官方页处理。
+    if(prefillUnknown&&this.hasLoginAttempt(shop))try{
+     await this.focusForInput(win);
+     const password=this.safeStorage.decryptString(Buffer.from(shop.secret,'base64'));
+     await this.authState(win,{username:shop.username,password,fillOnly:true,noForce:true});
+    }catch(error){this.assertWindow(win);this.log('manual-prefill-failed',error.message);}
+   }
    throw manualError('该店需要人工验证'+(message?'：'+message:''),ledger?'verification':'manual');
   }
   if(this.backgroundOnly)throw Error('该店需要人工登录或验证，请切换到该店完成认证后补查');
@@ -366,7 +374,7 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
    // 身份渲染慢不是登录失效；仅连续读到明确登录表单/未登录提示才转登录页。
    loginSignals=['form','logged_out'].includes(state.status)?loginSignals+1:0;
    if(!redirected&&loginSignals>=2){this.markLoginRequired(shop);redirected=true;await this.load(win,SELLER_LOGIN);continue;}
-   if(redirected&&resumeUnknown&&['form','logged_out'].includes(state.status)){const done=await this.attention(shop,win,'上次登录结果未确认：空白账号密码框会预填，请在官方窗口确认并点击登录');return done.shopName;}
+   if(redirected&&resumeUnknown&&['form','logged_out'].includes(state.status)){const done=await this.attention(shop,win,'上次登录结果未确认：请确认账号密码后在官方窗口点击登录',false,false,true);return done.shopName;}
    if(redirected&&['form','logged_out'].includes(state.status)&&!this.hasLoginAttempt(shop)){
     const password=this.safeStorage.decryptString(Buffer.from(shop.secret,'base64'));
     this.beginLoginAttempt(shop);
@@ -456,8 +464,9 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
     let win=this.windows.get(shop.id),created=!win||win.isDestroyed();
     try{
      if(created)win=this.window(shop);
+     else if(win.isVisible?.())return 'unknown'; // 用户正在处理的官方窗口不能被检测导航覆盖
      this.log('login-check-start',shop.name);
-     await this.load(win,shop.platform==='jd'?require('./promotion-fee-jd.cjs').HOME:HOME);
+     await this.load(win,shop.platform==='jd'?require('./promotion-fee-jd.cjs').HOME:HOME,{beforeNavigate:()=>{if(!created&&win.isVisible?.())throw Error('人工处理窗口已显示，不执行检测导航');}});
      const deadline=Date.now()+(this.loginCheckTimeoutMs||15000);let raw='unknown';
      while(Date.now()<deadline){
       this.check();

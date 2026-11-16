@@ -53,3 +53,15 @@ test('批量遇验证保留并展示窗口，继续返回人工状态',async t=>
  await assert.rejects(p.attention(shop,win,'synthetic'),e=>e.code==='NEEDS_MANUAL');
  assert.equal(shown,1);assert.equal(hidden,0);
 });
+
+test('批量遇未知登录检查点时预填空表单但不重复提交，保留检查点',async t=>{
+ const p=setup(t),shop=p.data.shops[0];p.interactive=false;p.beginLoginAttempt(shop);p.safeStorage.decryptString=b=>b.toString();let shown=0,focused=0;const calls=[];
+ p.showProblem=()=>{shown++;};p.focusForInput=async()=>{focused++;};p.authState=async(w,credentials)=>{calls.push(credentials);return {status:'filled'};};
+ const win={isDestroyed:()=>false,webContents:{isDestroyed:()=>false}};
+ await assert.rejects(p.attention(shop,win,'请确认后登录',false,false,true),e=>e.code==='NEEDS_MANUAL');
+ assert.equal(shown,1);assert.equal(focused,1);assert.equal(calls.length,1);assert.equal(calls[0].fillOnly,true);assert.equal(calls[0].stage,undefined);assert(p.hasLoginAttempt(shop));
+});
+test('后台未知检查点不解密、不预填、不抢焦点',async t=>{
+ const p=setup(t),shop=p.data.shops[0];p.interactive=false;p.hidden=true;p.beginLoginAttempt(shop);p.safeStorage.decryptString=()=>{throw Error('不应读取');};p.authState=()=>{throw Error('不应预填');};
+ await assert.rejects(p.attention(shop,{},'请确认',false,false,true),e=>e.code==='NEEDS_MANUAL');assert(p.hasLoginAttempt(shop));
+});

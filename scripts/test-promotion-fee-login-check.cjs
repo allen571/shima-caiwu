@@ -110,3 +110,8 @@ test('勾选语义由前端负责：接口只返回状态，前端把过期/待�
  assert.equal(r.results[0].status,'expired');
  assert.equal(['expired','verification','rejected'].includes(r.results[0].status),true,'前端将按此口径自动勾选');
 });
+
+test('检测登录时保留正在显示的人工认证窗口，不跳转',async t=>{
+ const s=setup(t),shop=s.data.shops[0],win=fakeWin();win.isVisible=()=>true;s.windows.set(shop.id,win);let navigated=0;s.load=async()=>{navigated++;};
+ const r=await s.checkLogins({shopIds:[shop.id]});assert.equal(navigated,0);assert.equal(r.results[0].status,'unknown');assert.equal(win.destroyedFlag,false);
+});

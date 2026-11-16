@@ -105,3 +105,11 @@ test('原生输入成功时不额外注入 DOM 填写', async () => {
     assert.equal(scripts.length, 0, '原生成功时不应再有额外脚本');
   } finally { nativeLogin.operate = original; }
 });
+
+test('未知检查点预填禁止强制覆盖已填字段或通过 DOM 提交',async()=>{
+ const original=nativeLogin.operate;nativeLogin.operate=async()=>({status:'manual'});
+ try{for(const values of [{empty:true},{usernameFilled:true,usernameMatches:true,passwordFilled:false},{usernameFilled:true,passwordFilled:true}]){
+  const {host,win,scripts}=harness(values);const result=await callAuthState(host,win,{username:'test-user',password:'test-pass',fillOnly:true,noForce:true});
+  assert.equal(result.status,'manual');assert.equal(lastInjection(scripts),undefined);
+ }}finally{nativeLogin.operate=original;}
+});
