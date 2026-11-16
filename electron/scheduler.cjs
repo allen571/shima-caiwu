@@ -176,6 +176,7 @@ class Scheduler{
    const shops=this.service.data.shops||[];
    const allIds=shops.map(s=>s.id);
    const fundIds=shops.filter(s=>['taobao','tmall'].includes(s.platform||'taobao')).map(s=>s.id);
+   const monthlyBlocked=new Map();
    // 月累计快照先抓，单日结果后抓，确保工作台默认仍展示本次单日计划。
    // 月初第一天的累计与单日是同一个区间，无需重复抓。
    if(this.refreshMonthly&&allIds.length&&day.slice(8)!=='01'){
@@ -186,15 +187,25 @@ class Scheduler{
     if(this.service.writeFailure)throw Error(this.service.lastError||'推广费记录保存失败，已停止后续抓取');
     const rows=this.service.data.results.filter(r=>!before.has(r.runId)&&allIds.includes(r.shopId));
     const byId=new Map(rows.map(r=>[r.shopId,r]));
+    for(const r of rows)if(['manual','failed'].includes(r.status))monthlyBlocked.set(r.shopId,r);
     record.monthly=allIds.map(id=>{const r=byId.get(id);return {shopId:id,status:r?.status||'missing',error:r?.error||(!r?'未生成月累计结果':'')};});
    }
    // —— 第一轮：全部店铺 ——
    this.phaseText='每日计划（'+day+'）第一轮 · 推广费（'+allIds.length+' 家）';
-   const round1P=await this.runRound('promo',allIds,day);
-   this.phaseText='每日计划（'+day+'）第一轮 · 资金日汇总（'+fundIds.length+' 家）';
-   const round1F=await this.runRound('fund',fundIds,day);
+   const round1P=await this.runRound('promo',allIds.filter(id=>!monthlyBlocked.has(id)),day);
+   // 月累计遇到人工验证时，不再次导航同一窗口；单日记录如实标记待验证，供补查。
+   if(monthlyBlocked.size){
+    const runId=randomUUID();
+    const deferred=[...monthlyBlocked].map(([id,r])=>({runId,shopId:id,shopName:r.shopName,platform:r.platform,start:day,end:day,status:r.status,amountCents:null,error:r.error||'月累计查询未完成，请处理后补查',manualReason:r.manualReason||'',updatedAt:r.updatedAt||new Date().toISOString()}));
+    this.service.save({...this.service.data,results:[...this.service.data.results,...deferred]});
+    round1P.push(...deferred);
+   }
+   const pendingManual=new Set(round1P.filter(r=>r.status==='manual'||monthlyBlocked.has(r.shopId)).map(r=>r.shopId));
+   const readyFundIds=fundIds.filter(id=>!pendingManual.has(id));
+   this.phaseText='每日计划（'+day+'）第一轮 · 资金日汇总（'+readyFundIds.length+' 家）';
+   const round1F=await this.runRound('fund',readyFundIds,day);
    // —— 第二轮：只跑第一轮失败的店铺（推广费口径对齐 retry()：completed 但含「无/财务号」子账户的也要重查）——
-   const failedP=round1P.filter(promoNeedRetry).map(r=>r.shopId);
+   const failedP=round1P.filter(r=>!monthlyBlocked.has(r.shopId)&&promoNeedRetry(r)).map(r=>r.shopId);
    const failedF=round1F.filter(r=>r.status!=='completed').map(r=>r.shopId);
    let round2P=[],round2F=[];
    if(failedP.length||failedF.length){
@@ -228,7 +239,8 @@ class Scheduler{
      fund:isFundShop?(fund?{status:fund.status,incomeCents:fund.incomeCents??null,expenseCents:fund.expenseCents??null,incomeCount:fund.incomeCount??null,expenseCount:fund.expenseCount??null,balanceCents:fund.balanceCents??null,round:fRound}:{status:'missing',round:null}):null,
      error:[
       promo&&!pOk?promo.error:'',
-      isFundShop&&fund&&!fOk?fund.error:''
+      isFundShop&&fund&&!fOk?fund.error:'',
+      isFundShop&&!fund&&pendingManual.has(s.id)?'等待处理推广费异常后补查资金':''
      ].filter(Boolean).join('；')
     };
    });

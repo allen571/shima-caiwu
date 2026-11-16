@@ -11,6 +11,7 @@ function fakeService(shops){
  const data={shops,results:[]};let preset=()=>[];
  return {
   data,busy:false,loginBusy:false,exportBusy:false,accountTransferBusy:false,
+  save(next){Object.assign(data,next);},
   calls:[],work:Promise.resolve(),
   setPreset(fn){preset=fn;},
   async start(input){this.calls.push({kind:'promo',...input});preset(input);return {};},
@@ -220,6 +221,7 @@ test('v1.2.69 runRound 引用替换回归：save() 整体替换 this.data 后仍
   const data={shops,results:[{runId:'old-1',shopId:'t0',start:'2026-11-07',end:'2026-11-07',status:'completed',amountCents:1}]};let n=0;
   return {
    data,busy:false,loginBusy:false,exportBusy:false,accountTransferBusy:false,
+  save(next){Object.assign(data,next);},
    calls:[],work:Promise.resolve(),
    async start(input){
     this.calls.push({kind:'promo',...input});
@@ -363,7 +365,7 @@ test('每日计划先更新月累计、再抓单日；累计失败单独记录�
  const s=new Scheduler({service,fund,root,netProbe:async()=>true});s.configure({autoExport:false,autoDetailDownload:false});
  const record=await s.executePlan('2026-11-13','2026-11-14');
  assert.deepEqual(service.calls.map(x=>[x.start,x.end]),[['2026-11-01','2026-11-13'],['2026-11-13','2026-11-13']]);
- assert.deepEqual(record.summary.monthly,{total:3,failed:1});assert.equal(record.monthly.find(x=>x.shopId==='t2').error,'需要验证');assert.equal(record.summary.failed,0);
+ assert.deepEqual(record.summary.monthly,{total:3,failed:1});assert.equal(record.monthly.find(x=>x.shopId==='t2').error,'需要验证');assert.equal(record.summary.failed,1);
 });
 test('计划日期为月初第一天时，单日查询同时就是月累计，不重复查询',async()=>{
  const root=tempRoot(),service=fakeService(SHOPS),fund=fakeFund(SHOPS);
@@ -371,4 +373,29 @@ test('计划日期为月初第一天时，单日查询同时就是月累计，�
  fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f1',shopId:id,month:input.months.start,day:input.day,status:'completed'});});
  const s=new Scheduler({service,fund,root,netProbe:async()=>true});s.configure({autoExport:false,autoDetailDownload:false});await s.executePlan('2026-11-01','2026-11-02');
  assert.equal(service.calls.length,1);assert.equal(service.calls[0].start,'2026-11-01');assert.equal(service.calls[0].end,'2026-11-01');
+});
+
+test('月累计遇人工验证后保留窗口，不再对该店派发单日及资金抓取',async()=>{
+ const root=tempRoot(),service=fakeService(SHOPS),fund=fakeFund(SHOPS);let n=0;
+ service.save=data=>{service.data=data;};
+ service.setPreset(input=>{n++;for(const id of input.shopIds)service.data.results.push({runId:'p'+n,shopId:id,shopName:id,platform:id==='j1'?'jd':'taobao',start:input.start,end:input.end,status:n===1&&id==='t1'?'manual':'completed',error:n===1&&id==='t1'?'请完成验证':'',amountCents:n===1&&id==='t1'?null:100});});
+ fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f1',shopId:id,month:input.months.start,day:input.day,status:'completed'});});
+ const s=new Scheduler({service,fund,root,netProbe:async()=>true});s.configure({autoExport:false,autoDetailDownload:false});const record=await s.executePlan('2026-11-13','2026-11-14');
+ assert.deepEqual(service.calls[1].shopIds,['t2','j1']);assert.deepEqual(fund.calls[0].shopIds,['t2']);
+ const row=service.data.results.find(r=>r.shopId==='t1'&&r.start==='2026-11-13');assert.equal(row.status,'manual');assert.equal(row.amountCents,null);assert.match(row.error,/验证/);
+ const result=record.rows.find(r=>r.shopId==='t1');assert.equal(result.promo.status,'manual');assert.equal(result.fund.status,'missing');assert.match(result.error,/补查资金/);
+});
+test('单日抓取遇人工验证时不再导航同店资金窗口',async()=>{
+ const root=tempRoot(),service=fakeService(SHOPS),fund=fakeFund(SHOPS);
+ service.setPreset(input=>{for(const id of input.shopIds)service.data.results.push({runId:'p1',shopId:id,start:input.start,end:input.end,status:id==='t1'?'manual':'completed',amountCents:id==='t1'?null:1,error:id==='t1'?'需要人工':''});});
+ fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f1',shopId:id,month:input.months.start,day:input.day,status:'completed'});});
+ const s=new Scheduler({service,fund,root,refreshMonthly:false,netProbe:async()=>true});s.configure({autoExport:false,autoDetailDownload:false});await s.executePlan('2026-11-13','2026-11-14');assert.deepEqual(fund.calls[0].shopIds,['t2']);
+});
+
+test('延后记录保留原异常时间，验证先完成也可识别待补查',async()=>{
+ const root=tempRoot(),service=fakeService(SHOPS),fund=fakeFund(SHOPS);let n=0;
+ service.setPreset(input=>{n++;for(const id of input.shopIds)service.data.results.push({runId:'p'+n,shopId:id,shopName:id,platform:'taobao',start:input.start,end:input.end,status:n===1&&id==='t1'?'manual':'completed',error:n===1&&id==='t1'?'请验证':'',updatedAt:'2026-11-16T00:00:00.000Z',amountCents:n===1&&id==='t1'?null:1});});
+ fund.setPreset(input=>{for(const id of input.shopIds)fund.data.results.push({runId:'f1',shopId:id,month:input.months.start,day:input.day,status:'completed'});});
+ const s=new Scheduler({service,fund,root,netProbe:async()=>true});s.configure({autoExport:false,autoDetailDownload:false});await s.executePlan('2026-11-15','2026-11-16');
+ assert.equal(service.data.results.find(r=>r.shopId==='t1'&&r.start==='2026-11-15').updatedAt,'2026-11-16T00:00:00.000Z');
 });

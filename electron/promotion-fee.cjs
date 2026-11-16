@@ -100,7 +100,17 @@ if(!this.data.concurrencyMigrated){const legacy=Number(this.data.concurrency);if
    if(!r.shopId||!['failed','manual','paused'].includes(r.status)||!rowRecent(r,now))continue;
    for(let i=all.length-1;i>=0;i--){const o=all[i];if(o.shopId===r.shopId&&o.status==='completed'&&o.start===r.start&&o.end===r.end&&!carriedSeen.has(JSON.stringify([r.shopId,r.start||null,r.end||null]))){carriedSeen.add(JSON.stringify([r.shopId,r.start||null,r.end||null]));carried.push({...o,carriedOver:true});break;}}
   }
-  const rows=[...carried,...noShopLast,...latest].map(r=>this.writeFailure&&['running','queued'].includes(r.status)?{...r,status:'paused',error:this.lastError,amountCents:null}:r);
+  const rows=[...carried,...noShopLast,...latest].map(r=>{
+   if(this.writeFailure&&['running','queued'].includes(r.status))return {...r,status:'paused',error:this.lastError,amountCents:null};
+   // 登录确认只能改变待处理提示，不代表之前的查询已经成功；原始结果保持不变。
+   if(r.status==='manual'&&!r.accountChanged){
+    const shop=this.data.shops.find(s=>s.id===r.shopId),check=this.data.loginChecks?.[r.shopId];
+    const verified=Date.parse(shop?.loginConfirmedAt||''),failedAt=Date.parse(r.updatedAt||''),checkedAt=Date.parse(check?.at||'');
+    const laterFailure=['expired','verification','rejected'].includes(check?.status)&&(!Number.isFinite(checkedAt)||checkedAt>=verified);
+    if(shop&&!shop.loginNeedsAttention&&Number.isFinite(verified)&&Number.isFinite(failedAt)&&verified>failedAt&&!laterFailure)return {...r,status:'verified',error:'登录验证已完成，请补查原日期的推广费',amountCents:null};
+   }
+   return r;
+  });
   // v1.2.87：近期行进表，历史行单独放 stale（默认不显示，供 UI「显示历史记录」开关）
   // v1.2.87：近期行进表，历史行单独放 stale（默认不显示，供 UI「显示历史记录」开关）。
   // 最新一轮的行一律保留（用户可能故意查很早的自定义区间），其余按今昨两天判定。

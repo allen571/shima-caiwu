@@ -26,6 +26,7 @@ test('批量标记需人工后，只在同一已绑定店铺登录确认并落�
  await until(()=>calls.hidden===1);
  assert.equal(calls.flush,1);assert.equal(p.hasLoginAttempt(shop),false);assert.equal(p.shop(shop.id).loginNeedsAttention,false);assert.equal(p.state().shops[0].checkStatus,'');
  assert.equal(p.data.results.at(-1).status,'manual');assert.equal(p.data.results.at(-1).amountCents,null);
+ assert.equal(p.state().results.at(-1).status,'verified');assert.match(p.state().results.at(-1).error,/请补查/);assert.equal(p.state().manual.count,0);
 });
 test('登录到其他店铺或未建立绑定时，不隐藏窗口、不清除未知检查点',async t=>{
  const {p,shop,win,calls}=setup(t);p.beginLoginAttempt(shop);
